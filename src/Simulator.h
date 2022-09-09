@@ -135,6 +135,7 @@ const int OP_JAL = 0x6F;
 const int OP_JALR = 0x67;
 const int OP_IMM32 = 0x1B;
 const int OP_32 = 0x3B;
+const int OP_64A = 0x2F;//RV64A指令的opcode
 
 inline bool isBranch(Inst inst) {
   if (inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||

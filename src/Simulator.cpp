@@ -624,6 +624,9 @@ void Simulator::decode() {
         this->panic("Unknown 32bit funct3 0x%x\n", funct3);
       }
     } break;
+    case OP_64A:
+    
+      break;
     default:
       this->panic("Unsupported opcode 0x%x!\n", opcode);
     }
