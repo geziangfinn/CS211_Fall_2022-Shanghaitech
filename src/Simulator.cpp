@@ -54,6 +54,7 @@ const char *INSTNAME[]{
     "srli", "srai",  "add",   "sub",   "sll",   "slt",  "sltu", "xor",  "srl",
     "sra",  "or",    "and",   "ecall", "addiw", "mul",  "mulh", "div",  "rem",
     "lwu",  "slliw", "srliw", "sraiw", "addw",  "subw", "sllw", "srlw", "sraw",
+    "lr.d", "sc.d",  "lr.w",  "sc.w"
 };
 
 } // namespace RISCV
@@ -185,7 +186,7 @@ void Simulator::fetch() {
 }
 
 void Simulator::decode() {
-  if (this->fReg.stall) {
+  if (this->fReg.stall) { 
     if (verbose) {
       printf("Decode: Stall\n");
     }
@@ -625,7 +626,47 @@ void Simulator::decode() {
       }
     } break;
     case OP_64A:
-    
+      op1 = this->reg[rs1];
+      reg1 = rs1;
+      op2 = 0x0;
+      dest = rd;
+      offset = 0;
+      switch (funct3) {
+        case 0x2:  // lr.w, sc.w
+          if (((inst >> 27) & 0x1F) == 0x2) {
+            instname = "lr.w";
+            insttype = LRW;
+          } else if (((inst >> 27) & 0x1F) == 0x3) {
+            instname = "sc.w";
+            insttype = SCW;
+            op2 = this->reg[rs2];
+            reg2 = rs2;
+          } else {
+            this->panic("Unknown funct7 0x%x for OP_64A\n",
+                        (inst >> 27) & 0x1F);
+          }
+          break;
+        case 0x3:  // lr.d, sc.d
+          if (((inst >> 27) & 0x1F) == 0x2) {
+            instname = "lr.d";
+            insttype = LRD;
+          } else if (((inst >> 27) & 0x1F) == 0x3) {
+            instname = "sc.d";
+            insttype = SCD;
+            op2 = this->reg[rs2];
+            reg2 = rs2;
+          } else {
+            this->panic("Unknown funct7 0x%x for OP_64A\n",
+                        (inst >> 27) & 0x1F);
+          }
+          break;
+        default:
+          this->panic("Unknown 32bit funct3 0x%x\n", funct3);
+      }
+      op1str = REGNAME[rs1];
+      op2str = std::to_string(op2);
+      deststr = REGNAME[dest];
+      inststr = instname + " " + deststr + "," + op1str + "," + op2str;//useless for me?
       break;
     default:
       this->panic("Unsupported opcode 0x%x!\n", opcode);
@@ -924,6 +965,33 @@ void Simulator::excecute() {
     out = handleSystemCall(op1, op2);
     writeReg = true;
     break;
+  case LRW://reservation set? aq and rl? where to store reservation set?
+    readMem = true;
+    writeReg = true;
+    memLen = 4;
+    out = op1;
+    readSignExt = true;
+    break;
+  case LRD:
+    readMem = true;
+    writeReg = true;
+    memLen = 8;
+    out = op1;
+    readSignExt = true;
+    break;
+  case SCW:
+    writeMem = true;
+    writeReg = true;//write 0 to rd
+    memLen = 4;
+    out = op1;
+    op2 = op2 & 0xFFFFFFFF;
+    break;
+  case SCD:
+    writeMem = true;
+    writeReg = true;//write 0 to rd
+    memLen = 8;
+    out = op1;
+    break;
   default:
     this->panic("Unknown instruction type %d\n", inst);
   }
@@ -950,7 +1018,7 @@ void Simulator::excecute() {
     this->dRegNew.bubble = true;
     this->history.controlHazardCount++;
   }
-  if (isReadMem(inst)) {
+  if (isReadMem(inst)) {//add lr in isReadMem?
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
@@ -1026,7 +1094,7 @@ void Simulator::memoryAccess() {
   bool good = true;
   uint32_t cycles = 0;
 
-  if (writeMem) {
+  if (writeMem) {//out should be set to 0 or 1 for sc
     switch (memLen) {
     case 1:
       good = this->memory->setByte(out, op2, &cycles);
@@ -1044,7 +1112,6 @@ void Simulator::memoryAccess() {
       this->panic("Unknown memLen %d\n", memLen);
     }
   }
-
   if (!good) {
     this->panic("Invalid Mem Access!\n");
   }
@@ -1068,6 +1135,7 @@ void Simulator::memoryAccess() {
     case 4:
       if (readSignExt) {
         out = (int64_t)this->memory->getInt(out, &cycles);
+        //printf("%x\n", out);
       } else {
         out = (uint64_t)this->memory->getInt(out, &cycles);
       }
@@ -1075,6 +1143,7 @@ void Simulator::memoryAccess() {
     case 8:
       if (readSignExt) {
         out = (int64_t)this->memory->getLong(out, &cycles);
+        //printf("%x\n", out);
       } else {
         out = (uint64_t)this->memory->getLong(out, &cycles);
       }
@@ -1090,14 +1159,24 @@ void Simulator::memoryAccess() {
   if (verbose) {
     printf("Memory Access: %s\n", INSTNAME[inst]);
   }
-
+   if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
+    {
+      if(good)
+      {
+        out = 0;
+      }
+      else
+      {
+        out = 1;
+      }
+    }
   // Check for data hazard and forward data
   if (writeReg && destReg != 0) {
     if (this->dRegNew.rs1 == destReg) {
       // Avoid overwriting recent values
       if (this->executeWriteBack == false ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
-        this->dRegNew.op1 = out;
+        this->dRegNew.op1 = out;//would the out(0/1) for sc cause bugs here?
         this->memoryWriteBack = true;
         this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
@@ -1157,7 +1236,6 @@ void Simulator::writeBack() {
   if (verbose) {
     printf("WriteBack: %s\n", INSTNAME[this->mReg.inst]);
   }
-
   if (this->mReg.writeReg && this->mReg.destReg != 0) {
     // Check for data hazard and forward data
     if (this->dRegNew.rs1 == this->mReg.destReg) {
@@ -1192,11 +1270,14 @@ void Simulator::writeBack() {
         }
       }
     }
-
     // Real Write Back
+   
+   if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
+  {
+     printf("114514%d\n", mReg.out);
+   }
     this->reg[this->mReg.destReg] = this->mReg.out;
   }
-
   // this->pc = this->mReg.pc;
 }
 
