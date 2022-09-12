@@ -1022,9 +1022,18 @@ void Simulator::excecute() {
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
-      this->eRegNew.bubble = true;
+      this->eRegNew.bubble = true;//???:set to false at the end of execute????
       this->history.cycleCount--;
       this->history.memoryHazardCount++;
+    }
+  }
+  if (inst==SCD||inst==SCW) {
+    if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
+      this->fRegNew.stall = 2;
+      this->dRegNew.stall = 2;
+      this->dRegNew.bubble = true;//??:how did this work??better use a graph
+      this->history.cycleCount--;
+      this->history.dataHazardCount;  // dRegNew.rs mustn't be read before SC write back
     }
   }
 
@@ -1159,7 +1168,7 @@ void Simulator::memoryAccess() {
   if (verbose) {
     printf("Memory Access: %s\n", INSTNAME[inst]);
   }
-   if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
+     if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
     {
       if(good)
       {
@@ -1271,11 +1280,6 @@ void Simulator::writeBack() {
       }
     }
     // Real Write Back
-   
-   if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
-  {
-     printf("114514%d\n", mReg.out);
-   }
     this->reg[this->mReg.destReg] = this->mReg.out;
   }
   // this->pc = this->mReg.pc;
