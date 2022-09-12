@@ -1031,14 +1031,14 @@ void Simulator::excecute() {
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
-      this->dRegNew.bubble = true;//??:how did this work??better use a graph
+      this->eRegNew.bubble = true;//??:how did this work??better use a graph
       this->history.cycleCount--;
-      this->history.dataHazardCount;  // dRegNew.rs mustn't be read before SC write back
+      this->history.memoryHazardCount++;  // dRegNew.rs mustn't be read before SC write back
     }
   }
 
   // Check for data hazard and forward data
-  if (writeReg && destReg != 0 && !isReadMem(inst)) {
+  if (writeReg && destReg != 0 && !isReadMem(inst)&&!(inst==SCD||inst==SCW)) {
     if (this->dRegNew.rs1 == destReg) {
       this->dRegNew.op1 = out;
       this->executeWBReg = destReg;
@@ -1124,7 +1124,17 @@ void Simulator::memoryAccess() {
   if (!good) {
     this->panic("Invalid Mem Access!\n");
   }
-
+   if(eReg.inst==SCW||eReg.inst==SCD)//reservation set should be checked here?
+    {
+      if(good)
+      {
+        out = 0;
+      }
+      else
+      {
+        out = 1;
+      }
+    }
   if (readMem) {
     switch (memLen) {
     case 1:
@@ -1168,17 +1178,7 @@ void Simulator::memoryAccess() {
   if (verbose) {
     printf("Memory Access: %s\n", INSTNAME[inst]);
   }
-     if(mReg.inst==SCW||mReg.inst==SCD)//reservation set should be checked here?
-    {
-      if(good)
-      {
-        out = 0;
-      }
-      else
-      {
-        out = 1;
-      }
-    }
+
   // Check for data hazard and forward data
   if (writeReg && destReg != 0) {
     if (this->dRegNew.rs1 == destReg) {
@@ -1186,7 +1186,7 @@ void Simulator::memoryAccess() {
       if (this->executeWriteBack == false ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op1 = out;//would the out(0/1) for sc cause bugs here?
-        this->memoryWriteBack = true;
+        this->memoryWriteBack = true; 
         this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
         if (verbose)
@@ -1213,7 +1213,7 @@ void Simulator::memoryAccess() {
       this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
       if (verbose)
-          printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
+          printf("  Forward Data %s to Decode op\n", REGNAME[destReg]);//op2 should be op?
     }
   }
 

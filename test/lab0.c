@@ -29,9 +29,9 @@ static long dst;
 
 int main() {
   int res;
-  dst = 50;
+  dst = 1;
 
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 2; ++i) {
     res = CAS(&dst, 211, i);
     if (!res)
       print_s("CAS SUCCESS\n");
