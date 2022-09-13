@@ -8,7 +8,7 @@
  * @return success `1' or not `0'
  */
 int CAS(long* dest, long new_value, long old_value) {
-  int ret = 1;
+  int ret = 0;
   // print_d(old_value);
   asm volatile(
       "cas:lr.d t0,(%[src1]);"
@@ -17,12 +17,12 @@ int CAS(long* dest, long new_value, long old_value) {
       "bne t0,x0,cas;"
       "li %[dest1],0;"
       "jal x0,finish;"
-      "fail:li %[dest1],36;"
+      "fail:li %[dest1],1;"
       "finish:"
       : [dest1] "=r"(ret)
       : [src1] "r"(dest), [src2] "r"(old_value), [src3] "r"(new_value));
 
-  return ret;
+  return !ret;
 }
 
 static long dst;
@@ -33,7 +33,7 @@ int main() {
 
   for (int i = 0; i < 2; ++i) {
     res = CAS(&dst, 211, i);
-    if (!res)
+    if (res)
       print_s("CAS SUCCESS\n");
     else
       print_s("CAS FAIL\n");

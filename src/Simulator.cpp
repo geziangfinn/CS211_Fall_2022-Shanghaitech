@@ -2,16 +2,16 @@
  * Created by He, Hao at 2019-3-11
  */
 
+#include "Simulator.h"
+
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 
 #include "Debug.h"
-#include "Simulator.h"
 
 namespace RISCV {
-
 const char *REGNAME[32] = {
     "zero", // x0
     "ra",   // x1
@@ -54,8 +54,7 @@ const char *INSTNAME[]{
     "srli", "srai",  "add",   "sub",   "sll",   "slt",  "sltu", "xor",  "srl",
     "sra",  "or",    "and",   "ecall", "addiw", "mul",  "mulh", "div",  "rem",
     "lwu",  "slliw", "srliw", "sraiw", "addw",  "subw", "sllw", "srlw", "sraw",
-    "lr.d", "sc.d",  "lr.w",  "sc.w"
-};
+    "lr.d", "sc.d",  "lr.w",  "sc.w"};
 
 } // namespace RISCV
 
@@ -126,10 +125,14 @@ void Simulator::simulate() {
     this->memoryAccess();
     this->writeBack();
 
-    if (!this->fReg.stall) this->fReg = this->fRegNew;
-    else this->fReg.stall--;
-    if (!this->dReg.stall) this->dReg = this->dRegNew;
-    else this->dReg.stall--;
+    if (!this->fReg.stall)
+      this->fReg = this->fRegNew;
+    else
+      this->fReg.stall--;
+    if (!this->dReg.stall)
+      this->dReg = this->dRegNew;
+    else
+      this->dReg.stall--;
     this->eReg = this->eRegNew;
     this->mReg = this->mRegNew;
     memset(&this->fRegNew, 0, sizeof(this->fRegNew));
@@ -137,8 +140,10 @@ void Simulator::simulate() {
     memset(&this->eRegNew, 0, sizeof(this->eRegNew));
     memset(&this->mRegNew, 0, sizeof(this->mRegNew));
 
-    // The Branch perdiction happens here to avoid strange bugs in branch prediction
-    if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall && this->dReg.predictedBranch) {
+    // The Branch perdiction happens here to avoid strange bugs in branch
+    // prediction
+    if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall &&
+        this->dReg.predictedBranch) {
       this->pc = this->predictedPC;
     }
 
@@ -186,7 +191,7 @@ void Simulator::fetch() {
 }
 
 void Simulator::decode() {
-  if (this->fReg.stall) { 
+  if (this->fReg.stall) {
     if (verbose) {
       printf("Decode: Stall\n");
     }
@@ -632,41 +637,40 @@ void Simulator::decode() {
       dest = rd;
       offset = 0;
       switch (funct3) {
-        case 0x2:  // lr.w, sc.w
-          if (((inst >> 27) & 0x1F) == 0x2) {
-            instname = "lr.w";
-            insttype = LRW;
-          } else if (((inst >> 27) & 0x1F) == 0x3) {
-            instname = "sc.w";
-            insttype = SCW;
-            op2 = this->reg[rs2];
-            reg2 = rs2;
-          } else {
-            this->panic("Unknown funct7 0x%x for OP_64A\n",
-                        (inst >> 27) & 0x1F);
-          }
-          break;
-        case 0x3:  // lr.d, sc.d
-          if (((inst >> 27) & 0x1F) == 0x2) {
-            instname = "lr.d";
-            insttype = LRD;
-          } else if (((inst >> 27) & 0x1F) == 0x3) {
-            instname = "sc.d";
-            insttype = SCD;
-            op2 = this->reg[rs2];
-            reg2 = rs2;
-          } else {
-            this->panic("Unknown funct7 0x%x for OP_64A\n",
-                        (inst >> 27) & 0x1F);
-          }
-          break;
-        default:
-          this->panic("Unknown 32bit funct3 0x%x\n", funct3);
+      case 0x2: // lr.w, sc.w
+        if (((inst >> 27) & 0x1F) == 0x2) {
+          instname = "lr.w";
+          insttype = LRW;
+        } else if (((inst >> 27) & 0x1F) == 0x3) {
+          instname = "sc.w";
+          insttype = SCW;
+          op2 = this->reg[rs2];
+          reg2 = rs2;
+        } else {
+          this->panic("Unknown funct7 0x%x for OP_64A\n", (inst >> 27) & 0x1F);
+        }
+        break;
+      case 0x3: // lr.d, sc.d
+        if (((inst >> 27) & 0x1F) == 0x2) {
+          instname = "lr.d";
+          insttype = LRD;
+        } else if (((inst >> 27) & 0x1F) == 0x3) {
+          instname = "sc.d";
+          insttype = SCD;
+          op2 = this->reg[rs2];
+          reg2 = rs2;
+        } else {
+          this->panic("Unknown funct7 0x%x for OP_64A\n", (inst >> 27) & 0x1F);
+        }
+        break;
+      default:
+        this->panic("Unknown 32bit funct3 0x%x\n", funct3);
       }
       op1str = REGNAME[rs1];
       op2str = std::to_string(op2);
       deststr = REGNAME[dest];
-      inststr = instname + " " + deststr + "," + op1str + "," + op2str;//useless for me?
+      inststr = instname + " " + deststr + "," + op1str + "," +
+                op2str; // useless for me?
       break;
     default:
       this->panic("Unsupported opcode 0x%x!\n", opcode);
@@ -965,7 +969,7 @@ void Simulator::excecute() {
     out = handleSystemCall(op1, op2);
     writeReg = true;
     break;
-  case LRW://reservation set? aq and rl? where to store reservation set?
+  case LRW: // reservation set? aq and rl? where to store reservation set?
     readMem = true;
     writeReg = true;
     memLen = 4;
@@ -981,14 +985,14 @@ void Simulator::excecute() {
     break;
   case SCW:
     writeMem = true;
-    writeReg = true;//write 0 to rd
+    writeReg = true; // write 0 to rd
     memLen = 4;
     out = op1;
     op2 = op2 & 0xFFFFFFFF;
     break;
   case SCD:
     writeMem = true;
-    writeReg = true;//write 0 to rd
+    writeReg = true; // write 0 to rd
     memLen = 8;
     out = op1;
     break;
@@ -1018,27 +1022,29 @@ void Simulator::excecute() {
     this->dRegNew.bubble = true;
     this->history.controlHazardCount++;
   }
-  if (isReadMem(inst)) {//add lr in isReadMem?
+  if (isReadMem(inst)) { // add lr in isReadMem?
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
-      this->eRegNew.bubble = true;//???:set to false at the end of execute????
+      this->eRegNew.bubble = true; //???:set to false at the end of execute????
       this->history.cycleCount--;
       this->history.memoryHazardCount++;
     }
   }
-  if (inst==SCD||inst==SCW) {
+  if (inst == SCD || inst == SCW) {
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
-      this->eRegNew.bubble = true;//??:how did this work??better use a graph
+      this->eRegNew.bubble = true; //??:how did this work??better use a graph
       this->history.cycleCount--;
-      this->history.memoryHazardCount++;  // dRegNew.rs mustn't be read before SC write back
+      this->history.memoryHazardCount++; // dRegNew.rs mustn't be read before
+                                         // SC write back
     }
   }
 
   // Check for data hazard and forward data
-  if (writeReg && destReg != 0 && !isReadMem(inst)&&!(inst==SCD||inst==SCW)) {
+  if (writeReg && destReg != 0 && !isReadMem(inst) &&
+      !(inst == SCD || inst == SCW)) {
     if (this->dRegNew.rs1 == destReg) {
       this->dRegNew.op1 = out;
       this->executeWBReg = destReg;
@@ -1100,10 +1106,19 @@ void Simulator::memoryAccess() {
   bool readSignExt = this->eReg.readSignExt;
   uint32_t memLen = this->eReg.memLen;
 
-  bool good = true;
+  bool good = false; // should be false before any operation?
+  bool reservationsetcheck = true;
+
+  int64_t reservedaddress = out;
   uint32_t cycles = 0;
 
-  if (writeMem) {//out should be set to 0 or 1 for sc
+  if (eReg.inst == SCW || eReg.inst == SCD) {
+    if (this->reservation.find(out) == this->reservation.end()) {
+      reservationsetcheck = false;
+    }
+    this->reservation.clear();
+  }
+  if (writeMem && reservationsetcheck) { // out should be set to 0 or 1 for sc
     switch (memLen) {
     case 1:
       good = this->memory->setByte(out, op2, &cycles);
@@ -1120,21 +1135,20 @@ void Simulator::memoryAccess() {
     default:
       this->panic("Unknown memLen %d\n", memLen);
     }
-  }
-  if (!good) {
-    this->panic("Invalid Mem Access!\n");
-  }
-   if(eReg.inst==SCW||eReg.inst==SCD)//reservation set should be checked here?
-    {
-      if(good)
-      {
-        out = 0;
-      }
-      else
-      {
-        out = 1;
-      }
+    if (!good) {
+      this->panic("Invalid Mem Access!\n"); // moved inside if(writeMem &&
+                                            // reservationsetcheck)
     }
+  }
+  if (eReg.inst == SCW ||
+      eReg.inst == SCD) // reservation set should be checked here?
+  {
+    if (reservationsetcheck) {
+      out = 0;
+    } else {
+      out = 1;
+    }
+  }
   if (readMem) {
     switch (memLen) {
     case 1:
@@ -1154,7 +1168,7 @@ void Simulator::memoryAccess() {
     case 4:
       if (readSignExt) {
         out = (int64_t)this->memory->getInt(out, &cycles);
-        //printf("%x\n", out);
+        // printf("%x\n", out);
       } else {
         out = (uint64_t)this->memory->getInt(out, &cycles);
       }
@@ -1162,7 +1176,7 @@ void Simulator::memoryAccess() {
     case 8:
       if (readSignExt) {
         out = (int64_t)this->memory->getLong(out, &cycles);
-        //printf("%x\n", out);
+        // printf("%x\n", out);
       } else {
         out = (uint64_t)this->memory->getLong(out, &cycles);
       }
@@ -1170,9 +1184,12 @@ void Simulator::memoryAccess() {
     default:
       this->panic("Unknown memLen %d\n", memLen);
     }
+    if (eReg.inst == LRW || eReg.inst == LRD) {
+      this->reservation.insert(reservedaddress);
+    }
   }
 
-  //if (cycles != 0) printf("%d\n", cycles);
+  // if (cycles != 0) printf("%d\n", cycles);
   this->history.cycleCount += cycles;
 
   if (verbose) {
@@ -1185,8 +1202,8 @@ void Simulator::memoryAccess() {
       // Avoid overwriting recent values
       if (this->executeWriteBack == false ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
-        this->dRegNew.op1 = out;//would the out(0/1) for sc cause bugs here?
-        this->memoryWriteBack = true; 
+        this->dRegNew.op1 = out; // would the out(0/1) for sc cause bugs here?
+        this->memoryWriteBack = true;
         this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
         if (verbose)
@@ -1207,13 +1224,16 @@ void Simulator::memoryAccess() {
     }
     // Corner case of forwarding mem load data to stalled decode reg
     if (this->dReg.stall) {
-      if (this->dReg.rs1 == destReg) this->dReg.op1 = out;
-      if (this->dReg.rs2 == destReg) this->dReg.op2 = out;
+      if (this->dReg.rs1 == destReg)
+        this->dReg.op1 = out;
+      if (this->dReg.rs2 == destReg)
+        this->dReg.op2 = out;
       this->memoryWriteBack = true;
       this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
       if (verbose)
-          printf("  Forward Data %s to Decode op\n", REGNAME[destReg]);//op2 should be op?
+        printf("  Forward Data %s to Decode op\n",
+               REGNAME[destReg]); // op2 should be op?
     }
   }
 
@@ -1314,7 +1334,7 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
     this->printStatistics();
     exit(0);
   case 4: // read char
-    scanf(" %c", (char*)&op1);
+    scanf(" %c", (char *)&op1);
     break;
   case 5: // read num
     scanf(" %lld", &op1);
@@ -1346,13 +1366,11 @@ void Simulator::printStatistics() {
          (float)this->history.predictedBranch /
              (this->history.predictedBranch + this->history.unpredictedBranch),
          this->branchPredictor->strategyName().c_str());
-  printf("Number of Control Hazards: %u\n",
-         this->history.controlHazardCount);
+  printf("Number of Control Hazards: %u\n", this->history.controlHazardCount);
   printf("Number of Data Hazards: %u\n", this->history.dataHazardCount);
-  printf("Number of Memory Hazards: %u\n",
-         this->history.memoryHazardCount);
+  printf("Number of Memory Hazards: %u\n", this->history.memoryHazardCount);
   printf("-----------------------------------\n");
-  //this->memory->printStatistics();
+  // this->memory->printStatistics();
 }
 
 std::string Simulator::getRegInfoStr() {

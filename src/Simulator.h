@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <set>
 
 #include "BranchPredictor.h"
 #include "MemoryManager.h"
@@ -179,6 +180,7 @@ public:
   uint32_t maximumStackSize;
   MemoryManager *memory;
   BranchPredictor *branchPredictor;
+  std::set<int64_t> reservation;
 
   Simulator(MemoryManager *memory, BranchPredictor *predictor);
   ~Simulator();
