@@ -21,6 +21,7 @@ void printUsage();
 void printElfInfo(ELFIO::elfio *reader);
 void loadElfToMemory(ELFIO::elfio *reader, MemoryManager *memory);
 
+
 char *elfFile = nullptr;
 bool verbose = 0;
 bool isSingleStep = 0;
@@ -38,8 +39,8 @@ int main(int argc, char **argv) {
     printUsage();
     exit(-1);
   }
-
   // Init cache
+
   Cache::Policy l1Policy, l2Policy, l3Policy;
 
   l1Policy.cacheSize = 32 * 1024;
@@ -63,12 +64,11 @@ int main(int argc, char **argv) {
   l3Policy.hitLatency = 20;
   l3Policy.missLatency = 100;
 
-  l3Cache = new Cache(&memory, l3Policy);
-  l2Cache = new Cache(&memory, l2Policy, l3Cache);
-  l1Cache = new Cache(&memory, l1Policy, l2Cache);
+  l3Cache = new Cache(&memory, l3Policy, 3);
+  l2Cache = new Cache(&memory, l2Policy, 2, l3Cache);
+  l1Cache = new Cache(&memory, l1Policy, 1, l2Cache);
 
   memory.setCache(l1Cache);
-
   // Read ELF file
   ELFIO::elfio reader;
   if (!reader.load(elfFile)) {
@@ -93,12 +93,10 @@ int main(int argc, char **argv) {
   simulator.pc = reader.get_entry();
   simulator.initStack(stackBaseAddr, stackSize);
   simulator.simulate();
-
   if (dumpHistory) {
     printf("Dumping history to dump.txt...\n");
     simulator.dumpHistory();
   }
-
   delete l1Cache;
   delete l2Cache;
   delete l3Cache;

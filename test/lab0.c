@@ -11,9 +11,9 @@ int CAS(long* dest, long new_value, long old_value) {
   int ret = 0;
   // print_d(old_value);
   asm volatile(
-      "cas:lr.d t0,(%[src1]);"
+      "cas:lr.w t0,(%[src1]);"
       "bne t0,%[src2],fail;"
-      "sc.d t0,%[src3],(%[src1]);"
+      "sc.w t0,%[src3],(%[src1]);"
       "bne t0,x0,cas;"
       "li %[dest1],0;"
       "jal x0,finish;"
@@ -29,10 +29,10 @@ static long dst;
 
 int main() {
   int res;
-  dst = 1;
+  dst = 77;
 
-  for (int i = 0; i < 2; ++i) {
-    res = CAS(&dst, 211, i);
+  for (int i = 0; i < 100; ++i) {
+    res = CAS(&dst, 79, i);
     if (res)
       print_s("CAS SUCCESS\n");
     else
@@ -43,6 +43,4 @@ int main() {
     print_d(dst);
     print_c('\n');
   }
-
-  exit_proc();
 }

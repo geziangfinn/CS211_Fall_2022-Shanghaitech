@@ -26,6 +26,17 @@ public:
     uint32_t missLatency; // in cycles
   };
 
+  struct SamplerBlock {
+    uint32_t tag;
+    uint32_t partialPC;
+    bool dead;
+    bool valid;
+    uint32_t lastReference;
+    // LRU通过读已有的referencenumber即可实现，partialPC怎么得到？有了partialPC，predictor的代码也可以写在cache里
+    //搞清楚什么时候访问L3和Sampler的换入换出
+    //TODO: samplerBlock 和samplerblocks的构造，只用L3的sampler即可，每层都可以有。利用cache level可表明LLC
+  };
+
   struct Block {
     bool valid;
     bool modified;
@@ -34,6 +45,7 @@ public:
     uint32_t size;
     uint32_t lastReference;
     std::vector<uint8_t> data;
+    bool deadblock;
     Block() {}
     Block(const Block &b)
         : valid(b.valid), modified(b.modified), tag(b.tag), id(b.id),
@@ -50,14 +62,15 @@ public:
     uint64_t totalCycles;
   };
 
-  Cache(MemoryManager *manager, Policy policy, Cache *lowerCache = nullptr,
+  Cache(MemoryManager *manager, Policy policy, int cachelevel, Cache *lowerCache = nullptr,
         bool writeBack = true, bool writeAllocate = true);
 
   bool inCache(uint32_t addr);
   uint32_t getBlockId(uint32_t addr);
   uint8_t getByte(uint32_t addr, uint32_t *cycles = nullptr);
+  uint8_t getByteEx(uint32_t addr, uint32_t *cycles = nullptr);
   void setByte(uint32_t addr, uint8_t val, uint32_t *cycles = nullptr);
-
+  void setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles = nullptr);
   void printInfo(bool verbose);
   void printStatistics();
 
@@ -71,11 +84,24 @@ private:
   Cache *lowerCache;
   Policy policy;
   std::vector<Block> blocks;
+  std::vector<SamplerBlock> samplerblocks;
+  bool exclusive = false;
+  int cachelevel;
+
+  std::vector<Block> predictionTable1;
+  std::vector<Block> predictionTable2;
+  std::vector<Block> predictionTable3;
 
   void initCache();
   void loadBlockFromLowerLevel(uint32_t addr, uint32_t *cycles = nullptr);
+  Block loadBlockFromLowerLevelEx(uint32_t addr, uint32_t *cycles = nullptr, Cache* lower=nullptr);
   uint32_t getReplacementBlockId(uint32_t begin, uint32_t end);
   void writeBlockToLowerLevel(Block &b);
+  void writeBlockToLowerLevelEx(Block &b, uint32_t *cycles);
+
+  uint32_t predictorhash1(uint32_t partialPC);
+  uint32_t predictorhash2(uint32_t partialPC);
+  uint32_t predictorhash3(uint32_t partialPC);
 
   // Utility Functions
   bool isPolicyValid();

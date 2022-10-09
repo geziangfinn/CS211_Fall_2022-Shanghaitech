@@ -1037,8 +1037,7 @@ void Simulator::excecute() {
       this->dRegNew.stall = 2;
       this->eRegNew.bubble = true; //??:how did this work??better use a graph
       this->history.cycleCount--;
-      this->history.memoryHazardCount++; // dRegNew.rs mustn't be read before
-                                         // SC write back
+      this->history.memoryHazardCount++; // dRegNew.rs mustn't be read before SC write back
     }
   }
 
@@ -1106,7 +1105,7 @@ void Simulator::memoryAccess() {
   bool readSignExt = this->eReg.readSignExt;
   uint32_t memLen = this->eReg.memLen;
 
-  bool good = false; // should be false before any operation?
+  bool good = false; // should be false before any operation? original:true
   bool reservationsetcheck = true;
 
   int64_t reservedaddress = out;
@@ -1136,12 +1135,10 @@ void Simulator::memoryAccess() {
       this->panic("Unknown memLen %d\n", memLen);
     }
     if (!good) {
-      this->panic("Invalid Mem Access!\n"); // moved inside if(writeMem &&
-                                            // reservationsetcheck)
+      this->panic("Invalid Mem Access!\n"); // moved inside if(writeMem && reservationsetcheck)
     }
   }
-  if (eReg.inst == SCW ||
-      eReg.inst == SCD) // reservation set should be checked here?
+  if (eReg.inst == SCW || eReg.inst == SCD) // reservation set should be checked here?
   {
     if (reservationsetcheck) {
       out = 0;
@@ -1232,8 +1229,7 @@ void Simulator::memoryAccess() {
       this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
       if (verbose)
-        printf("  Forward Data %s to Decode op\n",
-               REGNAME[destReg]); // op2 should be op?
+        printf("  Forward Data %s to Decode op\n",REGNAME[destReg]); // op2 should be op?
     }
   }
 
@@ -1332,6 +1328,7 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
       this->dumpHistory();
     }
     this->printStatistics();
+    this->memory->printStatistics();
     exit(0);
   case 4: // read char
     scanf(" %c", (char *)&op1);
