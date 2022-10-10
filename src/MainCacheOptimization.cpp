@@ -69,11 +69,11 @@ int main(int argc, char **argv) {
       memory->addPage(addr);
     switch (type) {
     case 'r':
-      memory->getByte(addr);
-      break;
+        memory->getByte(addr, -1);
+        break;
     case 'w':
-      memory->setByte(addr, 0);
-      break;
+        memory->setByte(addr, 0, -1);
+        break;
     default:
       dbgprintf("Illegal type %c\n", type);
       exit(-1);

@@ -9,8 +9,8 @@
 
 #include "Cache.h"
 
-#define CACHETEST
-
+//#define CACHETEST
+#define EXCLUSIVECACHE
 Cache::Cache(MemoryManager* manager, Policy policy, int cachelevel, Cache* lowerCache, bool writeBack, bool writeAllocate) {
     this->referenceCounter = 0;
     this->memory           = manager;
@@ -53,9 +53,9 @@ uint32_t Cache::getBlockId(uint32_t addr) {
 }
 
 uint8_t Cache::getByte(uint32_t addr, uint32_t* cycles) {
-
+#ifdef EXCLUSIVECACHE
     return this->getByteEx(addr, cycles);
-
+#endif
     this->referenceCounter++;
     this->statistics.numRead++;
 
@@ -89,9 +89,10 @@ uint8_t Cache::getByte(uint32_t addr, uint32_t* cycles) {
 }
 
 void Cache::setByte(uint32_t addr, uint8_t val, uint32_t* cycles) {
-
+#ifdef EXCLUSIVECACHE
     setByteEx(addr, val, cycles);
     return;
+#endif
     this->referenceCounter++;
     this->statistics.numWrite++;
 
