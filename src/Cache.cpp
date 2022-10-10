@@ -9,6 +9,8 @@
 
 #include "Cache.h"
 
+#define CACHETEST
+
 Cache::Cache(MemoryManager *manager, Policy policy, int cachelevel,
              Cache *lowerCache, bool writeBack, bool writeAllocate) {
   this->referenceCounter = 0;
@@ -327,7 +329,9 @@ uint32_t Cache::getAddr(Cache::Block &b) {
 }
 
 void Cache::setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles) {
+#ifdef CACHETEST
   printf("\nwriting addr: %x\n", addr);
+  #endif
   this->referenceCounter++;
   this->statistics.numWrite++;
   Cache *lowlevelpointer = this->lowerCache;
@@ -337,8 +341,10 @@ void Cache::setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles) {
   // If in L1 cache, return directly
   int blockId;
   if ((blockId = this->getBlockId(addr)) != -1) {
+#ifdef CACHETEST
     printf("addr: %x", addr);
     std::cout << " Hit in level " << this->cachelevel << "!\n";
+    #endif
     uint32_t offset = this->getOffset(addr);
     this->statistics.numHit++;
     this->statistics.totalCycles += this->policy.hitLatency;
@@ -347,10 +353,15 @@ void Cache::setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles) {
     this->blocks[blockId].data[offset] = val;
 
     if (!this->writeBack) {
+#ifdef CACHETEST
+      std::cout << "Writing through to memory.\n";
+      #endif
       uint32_t addrBegin = this->getAddr(blocks[blockId]);
+      std::cout << addrBegin << "\n";
       for (uint32_t i = 0; i < blocks[blockId].size; ++i) {
         this->memory->setByteNoCache(addrBegin + i, blocks[blockId].data[i]);
-      }  //对于exclusive cache，write through应该只写到L1和memory:用setbytenocache替换writetolowerlevel
+      }  //对于exclusive cache，write
+         //through应该只写到L1和memory:用setbytenocache替换writetolowerlevel
         this->statistics.totalCycles += this->policy.missLatency;//?why
       }
     if (cycles) *cycles = this->policy.hitLatency;
@@ -393,9 +404,13 @@ void Cache::setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles) {
       this->blocks[blockId].data[offset] = val;
 
       if (!this->writeBack) {//write through
-      uint32_t addrBegin = this->getAddr(blocks[blockId]);
-      for (uint32_t i = 0; i < blocks[blockId].size; ++i) {
-        this->memory->setByteNoCache(addrBegin + i, blocks[blockId].data[i]);
+#ifdef CACHETEST
+        std::cout << "Writing through to memory.\n";
+        #endif
+        uint32_t addrBegin = this->getAddr(blocks[blockId]);
+        std::cout << addrBegin << "\n";
+        for (uint32_t i = 0; i < blocks[blockId].size; ++i) {
+          this->memory->setByteNoCache(addrBegin + i, blocks[blockId].data[i]);
       }  //对于exclusive cache，write through应该只写到L1和memory:用setbytenocache替换writetolowerlevel
         this->statistics.totalCycles += this->policy.missLatency;//?why
       }
@@ -415,7 +430,9 @@ void Cache::setByteEx(uint32_t addr, uint8_t val, uint32_t *cycles) {
 }
 
 uint8_t Cache::getByteEx(uint32_t addr, uint32_t *cycles) {
+#ifdef CACHETEST
   printf("\nreading addr: %x\n", addr);
+#endif
   this->referenceCounter++;
   this->statistics.numRead++;
 
@@ -426,8 +443,10 @@ uint8_t Cache::getByteEx(uint32_t addr, uint32_t *cycles) {
   // If in L1 cache, return directly
   int blockId;  
   if ((blockId = this->getBlockId(addr)) != -1) {
+#ifdef CACHETEST
     printf("addr: %x", addr);
     std::cout << " Hit in level " << this->cachelevel << "!\n";
+    #endif
     uint32_t offset = this->getOffset(addr);
     this->statistics.numHit++;
     this->statistics.totalCycles += this->policy.hitLatency;
@@ -493,8 +512,10 @@ Cache::Block Cache::loadBlockFromLowerLevelEx(uint32_t addr, uint32_t *cycles,Ca
   uint32_t blockAddrBegin = addr & mask;//b: L1中的一个block
 
   if (lower == nullptr) {// 从memory里向L1读
+  #ifdef CACHETEST
     printf("addr: %x", addr);
     std::cout << " Hit in memory " << this->cachelevel << "! Load to L1\n";
+  #endif
     for (uint32_t i = blockAddrBegin; i < blockAddrBegin + blockSize; ++i) { 
         b.data[i - blockAddrBegin] = this->memory->getByteNoCache(i);
     }
@@ -506,11 +527,15 @@ Cache::Block Cache::loadBlockFromLowerLevelEx(uint32_t addr, uint32_t *cycles,Ca
   lower->referenceCounter++;
   lower->statistics.numRead++;
   int blockId;  //在L2/L3中寻找，hit时要invalidate block
+#ifdef CACHETEST
   std::cout << "searching in"<< lower->cachelevel << "!\n";
+  #endif
   if ((blockId = lower->getBlockId(addr)) != -1) {
     //uint32_t offset = lower->getOffset(addr);
+#ifdef CACHETEST
     printf("addr: %x",addr);
     std::cout << " Hit in level " << lower->cachelevel << "! Load to L1\n";
+    #endif
     lower->statistics.numHit++;
     lower->statistics.totalCycles += lower->policy.hitLatency;
     lower->blocks[blockId].lastReference = lower->referenceCounter;//没用，反正最后这个block要设为invalid
@@ -537,19 +562,22 @@ void Cache::writeBlockToLowerLevelEx(Cache::Block &b, uint32_t *cycles) {
   
   if (this->lowerCache == nullptr)  // this=L3
   {
-    if(b.modified)
-    {
-      for (uint32_t i = 0; i < b.size; ++i) {
-        this->memory->setByteNoCache(addrBegin + i, b.data[i]);
-      }
-    } // modified就写回内存(writeback)，没有就算了，注意cycles
+    if (this->writeBack) {
+      if (b.modified) {
+        std::cout << "Modified. Write back to memory.\n";
+        for (uint32_t i = 0; i < b.size; ++i) {
+          this->memory->setByteNoCache(addrBegin + i, b.data[i]);
+        }
+      }  // modified就写回内存(writeback)，没有就算了，注意cycles
+    }
+      return;
   }
   this->lowerCache->referenceCounter++;
   this->lowerCache->statistics.numWrite++;
 
   Block tolower;
-  tolower.valid = true;
-  tolower.modified = false;
+  tolower.valid = b.valid;
+  tolower.modified = b.modified;
   tolower.tag = this->lowerCache->getTag(addrBegin);
   tolower.id = this->lowerCache->getId(addrBegin);
   tolower.size = this->lowerCache->Cache::policy.blockSize;
@@ -567,15 +595,19 @@ void Cache::writeBlockToLowerLevelEx(Cache::Block &b, uint32_t *cycles) {
   Block blocktobereplaced = this->lowerCache->blocks[replaceId];
   
   this->lowerCache->blocks[replaceId] = tolower;
+  #ifdef CACHETEST
   printf("addrb: %x, tag: %x, id: %x ", addrBegin, tolower.tag,tolower.id);
   std::cout << " from level " << this->cachelevel << " evicted to level "
            << this->lowerCache->cachelevel << "!\n";
+  #endif
   if (blocktobereplaced.valid) {//需要再写到L3/memory  2022:10.5：为什么每次都是valid?? 为什么没有hit in level2?
     this->lowerCache->writeBlockToLowerLevelEx(blocktobereplaced, cycles);
     this->statistics.totalCycles += this->policy.missLatency;
   }
   else{
+#ifdef CACHETEST
     std::cout << "no victim in" << this->lowerCache->cachelevel<<"\n";
+    #endif
   }
 
  //写到L2/L3，注意b中的参数是上层的！应改为lowercache的参数！！或者只要b中的数据（l1l2l3blocksize相等）
