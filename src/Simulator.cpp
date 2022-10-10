@@ -79,7 +79,7 @@ void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
     if (!this->memory->isPageExist(addr)) {
       this->memory->addPage(addr);
     }
-    this->memory->setByte(addr, 0);
+    this->memory->setByte(addr, 0,-1);//pc为-1
   }
 }
 
@@ -175,7 +175,7 @@ void Simulator::fetch() {
     this->panic("Illegal PC 0x%x!\n", this->pc);
   }
 
-  uint32_t inst = this->memory->getInt(this->pc);
+  uint32_t inst = this->memory->getInt(this->pc, this->pc);
   uint32_t len = 4;
 
   if (this->verbose) {
@@ -1120,16 +1120,16 @@ void Simulator::memoryAccess() {
   if (writeMem && reservationsetcheck) { // out should be set to 0 or 1 for sc
     switch (memLen) {
     case 1:
-      good = this->memory->setByte(out, op2, &cycles);
+      good = this->memory->setByte(out, op2, eRegPC, &cycles);
       break;
     case 2:
-      good = this->memory->setShort(out, op2, &cycles);
+      good = this->memory->setShort(out, op2, eRegPC, &cycles);
       break;
     case 4:
-      good = this->memory->setInt(out, op2, &cycles);
+      good = this->memory->setInt(out, op2, eRegPC, &cycles);
       break;
     case 8:
-      good = this->memory->setLong(out, op2, &cycles);
+      good = this->memory->setLong(out, op2, eRegPC, &cycles);
       break;
     default:
       this->panic("Unknown memLen %d\n", memLen);
@@ -1150,32 +1150,32 @@ void Simulator::memoryAccess() {
     switch (memLen) {
     case 1:
       if (readSignExt) {
-        out = (int64_t)this->memory->getByte(out, &cycles);
+        out = (int64_t)this->memory->getByte(out, eRegPC, &cycles);
       } else {
-        out = (uint64_t)this->memory->getByte(out, &cycles);
+        out = (uint64_t)this->memory->getByte(out, eRegPC, &cycles);
       }
       break;
     case 2:
       if (readSignExt) {
-        out = (int64_t)this->memory->getShort(out, &cycles);
+        out = (int64_t)this->memory->getShort(out, eRegPC, &cycles);
       } else {
-        out = (uint64_t)this->memory->getShort(out, &cycles);
+        out = (uint64_t)this->memory->getShort(out, eRegPC, &cycles);
       }
       break;
     case 4:
       if (readSignExt) {
-        out = (int64_t)this->memory->getInt(out, &cycles);
+        out = (int64_t)this->memory->getInt(out, eRegPC, &cycles);
         // printf("%x\n", out);
       } else {
-        out = (uint64_t)this->memory->getInt(out, &cycles);
+        out = (uint64_t)this->memory->getInt(out, eRegPC, &cycles);
       }
       break;
     case 8:
       if (readSignExt) {
-        out = (int64_t)this->memory->getLong(out, &cycles);
+        out = (int64_t)this->memory->getLong(out, eRegPC, &cycles);
         // printf("%x\n", out);
       } else {
-        out = (uint64_t)this->memory->getLong(out, &cycles);
+        out = (uint64_t)this->memory->getLong(out, eRegPC, &cycles);
       }
       break;
     default:
@@ -1307,10 +1307,10 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
   switch (type) {
   case 0: { // print string
     uint32_t addr = arg1;
-    char ch = this->memory->getByte(addr);
+    char ch = this->memory->getByte(addr, -1);
     while (ch != '\0') {
       printf("%c", ch);
-      ch = this->memory->getByte(++addr);
+      ch = this->memory->getByte(++addr, -1);
     }
     break;
   }
