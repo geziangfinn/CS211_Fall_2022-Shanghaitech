@@ -43,26 +43,29 @@ int main(int argc, char **argv) {
 
   Cache::Policy l1Policy, l2Policy, l3Policy;
 
-  l1Policy.cacheSize = 32 * 1024;
+  l1Policy.cacheSize     = 32 * 1024;
   l1Policy.blockSize = 64;
   l1Policy.blockNum = l1Policy.cacheSize / l1Policy.blockSize;
   l1Policy.associativity = 8;
   l1Policy.hitLatency = 0;
   l1Policy.missLatency = 8;
 
-  l2Policy.cacheSize = 256 * 1024;
-  l2Policy.blockSize = 64;
+  l2Policy.cacheSize     = 256 * 1024;
+  l2Policy.blockSize     = 64;
   l2Policy.blockNum = l2Policy.cacheSize / l2Policy.blockSize;
   l2Policy.associativity = 8;
   l2Policy.hitLatency = 8;
   l2Policy.missLatency = 20;
 
-  l3Policy.cacheSize = 8 * 1024 * 1024;
+  l3Policy.cacheSize            = 8 * 1024 * 1024;
   l3Policy.blockSize = 64;
   l3Policy.blockNum = l3Policy.cacheSize / l3Policy.blockSize;
   l3Policy.associativity = 8;
   l3Policy.hitLatency = 20;
   l3Policy.missLatency = 100;
+  l3Policy.samplerassociativity = (l3Policy.associativity * 3) / 4;
+  l3Policy.samplesize           = 2;
+  l3Policy.samplerblockNum      = ((l3Policy.blockNum / l3Policy.associativity) / l3Policy.samplesize) * l3Policy.samplerassociativity;  // a sampler set for every 64 sets
 
   l3Cache = new Cache(&memory, l3Policy, 3);
   l2Cache = new Cache(&memory, l2Policy, 2, l3Cache);

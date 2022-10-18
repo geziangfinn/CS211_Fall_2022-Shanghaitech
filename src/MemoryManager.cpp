@@ -68,7 +68,7 @@ bool MemoryManager::setByte(uint32_t addr, uint8_t val, uint64_t pc, uint32_t* c
         return false;
     }
     if (this->cache != nullptr) {
-        this->cache->setByte(addr, val, cycles);
+        this->cache->setByte(addr, val, pc, cycles);
         return true;
     }
 
@@ -98,7 +98,7 @@ uint8_t MemoryManager::getByte(uint32_t addr, uint64_t pc, uint32_t* cycles) {
         return false;
     }
     if (this->cache != nullptr) {
-        return this->cache->getByte(addr, cycles);
+        return this->cache->getByte(addr, pc, cycles);
     }
     uint32_t i = this->getFirstEntryId(addr);
     uint32_t j = this->getSecondEntryId(addr);
@@ -123,13 +123,13 @@ bool MemoryManager::setShort(uint32_t addr, uint16_t val, uint64_t pc, uint32_t*
         return false;
     }
     this->setByte(addr, val & 0xFF, pc, cycles);
-    this->setByte(addr + 1, (val >> 8) & 0xFF, pc);
+    this->setByte(addr + 1, (val >> 8) & 0xFF, -1);
     return true;
 }
 
 uint16_t MemoryManager::getShort(uint32_t addr, uint64_t pc, uint32_t* cycles) {
     uint32_t b1 = this->getByte(addr, pc, cycles);
-    uint32_t b2 = this->getByte(addr + 1, pc);
+    uint32_t b2 = this->getByte(addr + 1, -1);
     return b1 + (b2 << 8);
 }
 
@@ -139,17 +139,17 @@ bool MemoryManager::setInt(uint32_t addr, uint32_t val, uint64_t pc, uint32_t* c
         return false;
     }
     this->setByte(addr, val & 0xFF, pc, cycles);
-    this->setByte(addr + 1, (val >> 8) & 0xFF, pc);
-    this->setByte(addr + 2, (val >> 16) & 0xFF, pc);
-    this->setByte(addr + 3, (val >> 24) & 0xFF, pc);
+    this->setByte(addr + 1, (val >> 8) & 0xFF, -1);
+    this->setByte(addr + 2, (val >> 16) & 0xFF, -1);
+    this->setByte(addr + 3, (val >> 24) & 0xFF, -1);
     return true;
 }
 
 uint32_t MemoryManager::getInt(uint32_t addr, uint64_t pc, uint32_t* cycles) {
     uint32_t b1 = this->getByte(addr, pc, cycles);
-    uint32_t b2 = this->getByte(addr + 1, pc);
-    uint32_t b3 = this->getByte(addr + 2, pc);
-    uint32_t b4 = this->getByte(addr + 3, pc);
+    uint32_t b2 = this->getByte(addr + 1, -1);
+    uint32_t b3 = this->getByte(addr + 2, -1);
+    uint32_t b4 = this->getByte(addr + 3, -1);
     return b1 + (b2 << 8) + (b3 << 16) + (b4 << 24);
 }
 
@@ -159,25 +159,25 @@ bool MemoryManager::setLong(uint32_t addr, uint64_t val, uint64_t pc, uint32_t* 
         return false;
     }
     this->setByte(addr, val & 0xFF, pc, cycles);
-    this->setByte(addr + 1, (val >> 8) & 0xFF, pc);
-    this->setByte(addr + 2, (val >> 16) & 0xFF, pc);
-    this->setByte(addr + 3, (val >> 24) & 0xFF, pc);
-    this->setByte(addr + 4, (val >> 32) & 0xFF, pc);
-    this->setByte(addr + 5, (val >> 40) & 0xFF, pc);
-    this->setByte(addr + 6, (val >> 48) & 0xFF, pc);
-    this->setByte(addr + 7, (val >> 56) & 0xFF, pc);
+    this->setByte(addr + 1, (val >> 8) & 0xFF, -1);
+    this->setByte(addr + 2, (val >> 16) & 0xFF, -1);
+    this->setByte(addr + 3, (val >> 24) & 0xFF, -1);
+    this->setByte(addr + 4, (val >> 32) & 0xFF, -1);
+    this->setByte(addr + 5, (val >> 40) & 0xFF, -1);
+    this->setByte(addr + 6, (val >> 48) & 0xFF, -1);
+    this->setByte(addr + 7, (val >> 56) & 0xFF, -1);
     return true;
 }
 
 uint64_t MemoryManager::getLong(uint32_t addr, uint64_t pc, uint32_t* cycles) {
     uint64_t b1 = this->getByte(addr, pc, cycles);
-    uint64_t b2 = this->getByte(addr + 1, pc);
-    uint64_t b3 = this->getByte(addr + 2, pc);
-    uint64_t b4 = this->getByte(addr + 3, pc);
-    uint64_t b5 = this->getByte(addr + 4, pc);
-    uint64_t b6 = this->getByte(addr + 5, pc);
-    uint64_t b7 = this->getByte(addr + 6, pc);
-    uint64_t b8 = this->getByte(addr + 7, pc);
+    uint64_t b2 = this->getByte(addr + 1, -1);
+    uint64_t b3 = this->getByte(addr + 2, -1);
+    uint64_t b4 = this->getByte(addr + 3, -1);
+    uint64_t b5 = this->getByte(addr + 4, -1);
+    uint64_t b6 = this->getByte(addr + 5, -1);
+    uint64_t b7 = this->getByte(addr + 6, -1);
+    uint64_t b8 = this->getByte(addr + 7, -1);
     return b1 + (b2 << 8) + (b3 << 16) + (b4 << 24) + (b5 << 32) + (b6 << 40) + (b7 << 48) + (b8 << 56);
 }
 

@@ -132,11 +132,11 @@ void simulateCache(std::ofstream &csvFile, uint32_t cacheSize,
       memory->addPage(addr);
     switch (type) {
     case 'r':
-      cache->getByte(addr);
-      break;
+        cache->getByte(addr, -1);
+        break;
     case 'w':
-      cache->setByte(addr, 0);
-      break;
+        cache->setByte(addr, 0, -1);
+        break;
     default:
       dbgprintf("Illegal type %c\n", type);
       exit(-1);

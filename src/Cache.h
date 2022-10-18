@@ -24,14 +24,18 @@ public:
         uint32_t associativity;
         uint32_t hitLatency;   // in cycles
         uint32_t missLatency;  // in cycles
+        uint32_t samplerblockNum;
+        uint32_t samplerassociativity;
+        uint32_t samplesize;
     };
 
     struct SamplerBlock {
-        uint32_t tag;
-        uint32_t partialPC;
+        uint32_t tag;  //为啥要存tag？
+        uint64_t partialPC;
         bool     dead;
         bool     valid;
         uint32_t lastReference;
+        uint32_t id;
         // LRU通过读已有的referencenumber即可实现，partialPC怎么得到？有了partialPC，predictor的代码也可以写在cache里
         //搞清楚什么时候访问L3和Sampler的换入换出
         // TODO: samplerBlock 和samplerblocks的构造，只用L3的sampler即可，每层都可以有。利用cache level可表明LLC
@@ -64,13 +68,16 @@ public:
 
     bool     inCache(uint32_t addr);
     uint32_t getBlockId(uint32_t addr);
-    uint8_t  getByte(uint32_t addr, uint32_t* cycles = nullptr);
+    uint8_t    getByte(uint32_t addr, uint64_t pc, uint32_t* cycles = nullptr);
     uint8_t  getByteEx(uint32_t addr, uint32_t* cycles = nullptr);
-    void     setByte(uint32_t addr, uint8_t val, uint32_t* cycles = nullptr);
+    void       getByteSamplerset(uint32_t addr, uint64_t pc);
+    void       setByte(uint32_t addr, uint8_t val, uint64_t pc, uint32_t* cycles = nullptr);
     void     setByteEx(uint32_t addr, uint8_t val, uint32_t* cycles = nullptr);
+    void       setByteSamplerset(uint32_t addr, uint64_t pc);
     void     printInfo(bool verbose);
     void     printStatistics();
-
+    uint32_t   getSamplerBlockId(uint32_t addr);
+    uint32_t   getSamplerSetId(uint32_t addr);
     Statistics statistics;
 
 private:
@@ -82,23 +89,28 @@ private:
     Policy                    policy;
     std::vector<Block>        blocks;
     std::vector<SamplerBlock> samplerblocks;
-    bool                      exclusive = false;
     int                       cachelevel;
 
-    std::vector<Block> predictionTable1;  // added in 2022.10.9 commit
-    std::vector<Block> predictionTable2;  // added in 2022.10.9 commit
-    std::vector<Block> predictionTable3;  // added in 2022.10.9 commit
+    std::vector<int> predictionTable1;  // added in 2022.10.9 commit
+    std::vector<int> predictionTable2;  // added in 2022.10.9 commit
+    std::vector<int> predictionTable3;  // added in 2022.10.9 commit
 
     void     initCache();
-    void     loadBlockFromLowerLevel(uint32_t addr, uint32_t* cycles = nullptr);
+    void     loadBlockFromLowerLevel(uint32_t addr, uint64_t pc, uint32_t* cycles = nullptr);
     Block    loadBlockFromLowerLevelEx(uint32_t addr, uint32_t* cycles = nullptr, Cache* lower = nullptr);
     uint32_t getReplacementBlockId(uint32_t begin, uint32_t end);
-    void     writeBlockToLowerLevel(Block& b);
+    uint32_t getSamplerReplacementBlockId(uint32_t begin, uint32_t end);
+    void     writeBlockToLowerLevel(Block& b, uint64_t pc);
     void     writeBlockToLowerLevelEx(Block& b, uint32_t* cycles);
 
-    uint32_t predictorhash1(uint32_t partialPC);  // added in 2022.10.9 commit
-    uint32_t predictorhash2(uint32_t partialPC);  // added in 2022.10.9 commit
-    uint32_t predictorhash3(uint32_t partialPC);  // added in 2022.10.9 commit
+    uint64_t predictorhash1(uint64_t partialPC);  // added in 2022.10.9 commit
+    uint64_t predictorhash2(uint64_t partialPC);  // added in 2022.10.9 commit
+    uint64_t predictorhash3(uint64_t partialPC);  // added in 2022.10.9 commit
+    void     updatepredictor(uint64_t pc, bool accessorevict);
+    bool     predictor(uint64_t pc);
+    int      saturating(int);
+    uint64_t skewh(uint64_t partialPC);
+    uint64_t reverseskewh(uint64_t partialPC);
 
     // Utility Functions
     bool     isPolicyValid();
