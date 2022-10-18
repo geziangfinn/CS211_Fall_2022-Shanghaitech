@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
   l3Policy.hitLatency = 20;
   l3Policy.missLatency = 100;
   l3Policy.samplerassociativity = (l3Policy.associativity * 3) / 4;
-  l3Policy.samplesize           = 2;
+  l3Policy.samplesize           = 64;
   l3Policy.samplerblockNum      = ((l3Policy.blockNum / l3Policy.associativity) / l3Policy.samplesize) * l3Policy.samplerassociativity;  // a sampler set for every 64 sets
 
   l3Cache = new Cache(&memory, l3Policy, 3);
