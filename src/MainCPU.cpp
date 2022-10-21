@@ -132,8 +132,12 @@ bool parseParameters(int argc, char **argv) {
             strategy = BranchPredictor::Strategy::BTFNT;
           } else if (str == "BPB") {
             strategy = BranchPredictor::Strategy::BPB;
-          } else {
-            return false;
+          }
+          else if (str == "PERCEPTRON") {
+              strategy = BranchPredictor::Strategy::PERCEPTRON;
+          }
+          else {
+              return false;
           }
         } else {
           return false;

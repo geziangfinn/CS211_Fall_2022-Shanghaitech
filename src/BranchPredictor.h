@@ -13,34 +13,47 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 const int PRED_BUF_SIZE = 4096;
 
 class BranchPredictor {
 public:
-  enum Strategy {
-    AT, // Always Taken
-    NT, // Always Not Taken
-    BTFNT, // Backward Taken, Forward Not Taken
-    BPB, // Branch Prediction Buffer with 2bit history information
-  } strategy;
+    enum Strategy {
+        AT,     // Always Taken
+        NT,     // Always Not Taken
+        BTFNT,  // Backward Taken, Forward Not Taken
+        BPB,    // Branch Prediction Buffer with 2bit history information
+        PERCEPTRON,
+    } strategy;
 
-  BranchPredictor();
-  ~BranchPredictor();
+    BranchPredictor();
+    ~BranchPredictor();
 
-  bool predict(uint32_t pc, uint32_t insttype, int64_t op1, int64_t op2,
-               int64_t offset);
+    bool predict(uint32_t pc, uint32_t insttype, int64_t op1, int64_t op2, int64_t offset);
 
-  // For Branch Prediction Buffer 
-  void update(uint32_t pc, bool branch);
+    // For Branch Prediction Buffer
+    void update(uint32_t pc, bool branch);
 
-  std::string strategyName();
-  
+    std::string strategyName();
+    void        updatehistoryregister(bool branch);
+    bool        perceptronPredict(uint32_t pc);
+    void        perceptronUpdate(uint32_t pc, bool branch, bool predictedBranch);
+
 private:
-  enum PredictorState {
-    STRONG_TAKEN = 0, WEAK_TAKEN = 1,
-    STRONG_NOT_TAKEN = 3, WEAK_NOT_TAKEN = 2,
-  } predbuf[PRED_BUF_SIZE]; // initial state: WEAK_TAKEN
+    enum PredictorState {
+        STRONG_TAKEN     = 0,
+        WEAK_TAKEN       = 1,
+        STRONG_NOT_TAKEN = 3,
+        WEAK_NOT_TAKEN   = 2,
+    } predbuf[PRED_BUF_SIZE];  // initial state: WEAK_TAKEN
+
+    uint64_t                      historylength;
+    uint64_t                      threshold;
+    uint64_t                      historyregister;
+    int                           perceptronnumber;
+    std::vector<std::vector<int>> perceptronTable;
+    int                           yout;
 };
 
 #endif

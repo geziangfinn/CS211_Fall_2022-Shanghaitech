@@ -10,7 +10,7 @@
 #include <string>
 
 #include "Debug.h"
-
+#define PERCEPTRON
 namespace RISCV {
 const char *REGNAME[32] = {
     "zero", // x0
@@ -319,69 +319,71 @@ void Simulator::decode() {
         }
         break;
       default:
-        this->panic("Unknown Funct3 field %x\n", funct3);
+          this->panic("Unknown Funct3 field %x\n", funct3);
       }
-      op1str = REGNAME[rs1];
-      op2str = REGNAME[rs2];
+      op1str  = REGNAME[rs1];
+      op2str  = REGNAME[rs2];
       deststr = REGNAME[rd];
       inststr = instname + " " + deststr + "," + op1str + "," + op2str;
       break;
     case OP_IMM:
-      op1 = this->reg[rs1];
-      reg1 = rs1;
-      op2 = imm_i;
-      dest = rd;
-      switch (funct3) {
-      case 0x0:
-        instname = "addi";
-        insttype = ADDI;
-        break;
-      case 0x2:
-        instname = "slti";
-        insttype = SLTI;
-        break;
-      case 0x3:
-        instname = "sltiu";
-        insttype = SLTIU;
-        break;
-      case 0x4:
-        instname = "xori";
-        insttype = XORI;
-        break;
-      case 0x6:
-        instname = "ori";
-        insttype = ORI;
-        break;
-      case 0x7:
-        instname = "andi";
-        insttype = ANDI;
-        break;
-      case 0x1:
-        instname = "slli";
-        insttype = SLLI;
-        op2 = op2 & 0x3F;
-        break;
-      case 0x5:
-        if (((inst >> 26) & 0x3F) == 0x0) {
-          instname = "srli";
-          insttype = SRLI;
-          op2 = op2 & 0x3F;
-        } else if (((inst >> 26) & 0x3F) == 0x10) {
-          instname = "srai";
-          insttype = SRAI;
-          op2 = op2 & 0x3F;
-        } else {
-          this->panic("Unknown funct7 0x%x for OP_IMM\n", (inst >> 26) & 0x3F);
+        op1  = this->reg[rs1];
+        reg1 = rs1;
+        op2  = imm_i;
+        dest = rd;
+        switch (funct3) {
+        case 0x0:
+            instname = "addi";
+            insttype = ADDI;
+            break;
+        case 0x2:
+            instname = "slti";
+            insttype = SLTI;
+            break;
+        case 0x3:
+            instname = "sltiu";
+            insttype = SLTIU;
+            break;
+        case 0x4:
+            instname = "xori";
+            insttype = XORI;
+            break;
+        case 0x6:
+            instname = "ori";
+            insttype = ORI;
+            break;
+        case 0x7:
+            instname = "andi";
+            insttype = ANDI;
+            break;
+        case 0x1:
+            instname = "slli";
+            insttype = SLLI;
+            op2      = op2 & 0x3F;
+            break;
+        case 0x5:
+            if (((inst >> 26) & 0x3F) == 0x0) {
+                instname = "srli";
+                insttype = SRLI;
+                op2      = op2 & 0x3F;
+            }
+            else if (((inst >> 26) & 0x3F) == 0x10) {
+                instname = "srai";
+                insttype = SRAI;
+                op2      = op2 & 0x3F;
+            }
+            else {
+                this->panic("Unknown funct7 0x%x for OP_IMM\n", (inst >> 26) & 0x3F);
+            }
+            break;
+        default:
+            this->panic("Unknown Funct3 field %x\n", funct3);
         }
+        op1str  = REGNAME[rs1];
+        op2str  = std::to_string(op2);
+        deststr = REGNAME[dest];
+        inststr = instname + " " + deststr + "," + op1str + "," + op2str;
         break;
-      default:
-        this->panic("Unknown Funct3 field %x\n", funct3);
-      }
-      op1str = REGNAME[rs1];
-      op2str = std::to_string(op2);
-      deststr = REGNAME[dest];
-      inststr = instname + " " + deststr + "," + op1str + "," + op2str;
-      break;
     case OP_LUI:
       op1 = imm_u;
       op2 = 0;
@@ -695,15 +697,15 @@ void Simulator::decode() {
 
   bool predictedBranch = false;
   if (isBranch(insttype)) {
-    predictedBranch = this->branchPredictor->predict(this->fReg.pc, insttype,
-                                                     op1, op2, offset);
-    if (predictedBranch) {
-      this->predictedPC = this->fReg.pc + offset;
-      this->anotherPC = this->fReg.pc + 4;
-      this->fRegNew.bubble = true;
-    } else {
-      this->anotherPC = this->fReg.pc + offset;
-    }
+      predictedBranch = this->branchPredictor->predict(this->fReg.pc, insttype, op1, op2, offset);
+      if (predictedBranch) {
+          this->predictedPC    = this->fReg.pc + offset;
+          this->anotherPC      = this->fReg.pc + 4;
+          this->fRegNew.bubble = true;
+      }
+      else {
+          this->anotherPC = this->fReg.pc + offset;
+      }
   }
 
   this->dRegNew.stall = false;
@@ -1014,6 +1016,9 @@ void Simulator::excecute() {
     }
     // this->dReg.pc: fetch original inst addr, not the modified one
     this->branchPredictor->update(this->dReg.pc, branch);
+#ifdef PERCEPTRON
+    this->branchPredictor->perceptronUpdate(this->dReg.pc, branch, predictedBranch);
+#endif
   }
   if (isJump(inst)) {
     // Control hazard here

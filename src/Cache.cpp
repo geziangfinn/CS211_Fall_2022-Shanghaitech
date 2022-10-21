@@ -11,8 +11,8 @@
 
 //#define CACHETEST
 //#define EXCLUSIVECACHE
-#define SDBP
-#define SDBPTEST
+//#define SDBP
+//#define SDBPTEST
 Cache::Cache(MemoryManager* manager, Policy policy, int cachelevel, Cache* lowerCache, bool writeBack, bool writeAllocate) {
     this->referenceCounter = 0;
     this->memory           = manager;
