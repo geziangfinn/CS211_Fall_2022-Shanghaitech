@@ -9,7 +9,7 @@ BranchPredictor::BranchPredictor() {
   for (int i = 0; i < PRED_BUF_SIZE; ++i) {
     this->predbuf[i] = WEAK_TAKEN;
   }
-  this->perceptronnumber = 100;
+  this->perceptronnumber = 267;  // 8KB,34,79下，267个
   this->historylength    = 34;
   this->perceptronTable  = std::vector<std::vector<int>>(this->perceptronnumber, std::vector<int>(this->historylength + 1, 0));
   this->historyregister  = 0;
@@ -73,7 +73,7 @@ void BranchPredictor::update(uint32_t pc, bool branch) {
     } else if (state == WEAK_NOT_TAKEN) {
       this->predbuf[id] = STRONG_NOT_TAKEN;
     } // do noting if STRONG_NOT_TAKEN
-  }   //这样实现比真的+1好多了，sdbp里的实现太傻了
+  }   //这样实现比真的+1好多了
 }
 
 std::string BranchPredictor::strategyName() {
