@@ -85,7 +85,7 @@ void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
 
 void Simulator::simulate() {
   // Initialize pipeline registers
-  memset(&this->fReg, 0, sizeof(this->fReg));
+  memset(&this->fReg, 0, sizeof(this->fReg));  // TODO:前面这些simulation的准备工作也可以改成一个函数，放到maincpu里执行，复制粘贴即可？
   memset(&this->fRegNew, 0, sizeof(this->fRegNew));
   memset(&this->dReg, 0, sizeof(this->dReg));
   memset(&this->dRegNew, 0, sizeof(this->dReg));
@@ -101,72 +101,71 @@ void Simulator::simulate() {
   mReg.bubble = true;
 
   // Main Simulation Loop
-  while (true) {
-    if (this->reg[0] != 0) {
-      // Some instruction might set this register to zero
-      this->reg[0] = 0;
-      // this->panic("Register 0's value is not zero!\n");
-    }
-
-    if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
-      this->panic("Stack Overflow!\n");
-    }
-
-    this->executeWriteBack = false;
-    this->executeWBReg = -1;
-    this->memoryWriteBack = false;
-    this->memoryWBReg = -1;
-
-    // THE EXECUTION ORDER of these functions are important!!!
-    // Changing them will introduce strange bugs
-    this->fetch();
-    this->decode();
-    this->excecute();
-    this->memoryAccess();
-    this->writeBack();
-
-    if (!this->fReg.stall)
-      this->fReg = this->fRegNew;
-    else
-      this->fReg.stall--;
-    if (!this->dReg.stall)
-      this->dReg = this->dRegNew;
-    else
-      this->dReg.stall--;
-    this->eReg = this->eRegNew;
-    this->mReg = this->mRegNew;
-    memset(&this->fRegNew, 0, sizeof(this->fRegNew));
-    memset(&this->dRegNew, 0, sizeof(this->dRegNew));
-    memset(&this->eRegNew, 0, sizeof(this->eRegNew));
-    memset(&this->mRegNew, 0, sizeof(this->mRegNew));
-
-    // The Branch perdiction happens here to avoid strange bugs in branch
-    // prediction
-    if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall &&
-        this->dReg.predictedBranch) {
-      this->pc = this->predictedPC;
-    }
-
-    this->history.cycleCount++;
-    this->history.regRecord.push_back(this->getRegInfoStr());
-    if (this->history.regRecord.size() >= 100000) { // Avoid using up memory
-      this->history.regRecord.clear();
-      this->history.instRecord.clear();
-    }
-
-    if (verbose) {
-      this->printInfo();
-    }
-
-    if (this->isSingleStep) {
-      printf("Type d to dump memory in dump.txt, press ENTER to continue: ");
-      char ch;
-      while ((ch = getchar()) != '\n') {
-        if (ch == 'd') {
-          this->dumpHistory();
-        }
+  while (true) {  // TODO:执行一个cycle, 要改成一个函数抽出来拿到maincpu里才行，复制粘贴即可？
+      if (this->reg[0] != 0) {
+          // Some instruction might set this register to zero
+          this->reg[0] = 0;
+          // this->panic("Register 0's value is not zero!\n");
       }
-    }
+
+      if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
+          this->panic("Stack Overflow!\n");
+      }
+
+      this->executeWriteBack = false;
+      this->executeWBReg     = -1;
+      this->memoryWriteBack  = false;
+      this->memoryWBReg      = -1;
+
+      // THE EXECUTION ORDER of these functions are important!!!
+      // Changing them will introduce strange bugs
+      this->fetch();
+      this->decode();
+      this->excecute();
+      this->memoryAccess();
+      this->writeBack();
+
+      if (!this->fReg.stall)
+          this->fReg = this->fRegNew;
+      else
+          this->fReg.stall--;
+      if (!this->dReg.stall)
+          this->dReg = this->dRegNew;
+      else
+          this->dReg.stall--;
+      this->eReg = this->eRegNew;
+      this->mReg = this->mRegNew;
+      memset(&this->fRegNew, 0, sizeof(this->fRegNew));
+      memset(&this->dRegNew, 0, sizeof(this->dRegNew));
+      memset(&this->eRegNew, 0, sizeof(this->eRegNew));
+      memset(&this->mRegNew, 0, sizeof(this->mRegNew));
+
+      // The Branch perdiction happens here to avoid strange bugs in branch
+      // prediction
+      if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall && this->dReg.predictedBranch) {
+          this->pc = this->predictedPC;
+      }
+
+      this->history.cycleCount++;
+      this->history.regRecord.push_back(this->getRegInfoStr());
+      if (this->history.regRecord.size() >= 100000) {  // Avoid using up memory
+          this->history.regRecord.clear();
+          this->history.instRecord.clear();
+      }
+
+      if (verbose) {
+          this->printInfo();
+      }
+
+      if (this->isSingleStep) {
+          printf("Type d to dump memory in dump.txt, press ENTER to continue: ");
+          char ch;
+          while ((ch = getchar()) != '\n') {
+              if (ch == 'd') {
+                  this->dumpHistory();
+              }
+          }
+      }
   }
 }
 

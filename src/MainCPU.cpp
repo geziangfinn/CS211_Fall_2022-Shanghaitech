@@ -26,13 +26,21 @@ char *elfFile = nullptr;
 bool verbose = 0;
 bool isSingleStep = 0;
 bool dumpHistory = 0;
-uint32_t stackBaseAddr = 0x80000000;
-uint32_t stackSize = 0x400000;
+uint32_t stackBaseAddr      = 0x80000000;  // Core 0
+uint32_t stackBaseAddrCore1 = 0x70000000;  // Core 1
+uint32_t stackSize          = 0x400000;    // Core 0 and Core 1
+
 MemoryManager memory;
 Cache *l1Cache, *l2Cache, *l3Cache;
+Cache *       l1CacheCore1, *l2CacheCore1;
+
 BranchPredictor::Strategy strategy = BranchPredictor::Strategy::NT;
+
 BranchPredictor branchPredictor;
+BranchPredictor branchPredictorCore1;
+
 Simulator simulator(&memory, &branchPredictor);
+Simulator simulatorCore1(&memory, &branchPredictorCore1);  // share memory but not BP
 
 int main(int argc, char **argv) {
   if (!parseParameters(argc, argv)) {
@@ -71,13 +79,19 @@ int main(int argc, char **argv) {
   l2Cache = new Cache(&memory, l2Policy, 2, l3Cache);
   l1Cache = new Cache(&memory, l1Policy, 1, l2Cache);
 
-  memory.setCache(l1Cache);
+  l2CacheCore1 = new Cache(&memory, l2Policy, 2, l3Cache);
+  l1CacheCore1 = new Cache(&memory, l1Policy, 1, l2CacheCore1);
+
+  memory.setCache(l1Cache);  //? how to add Core0 cache and Core1 cache? add core number as an parameter in memory::get/setByte()?
+                             // so core number should be added in simulator.cpp as well use set/getnocache when functions are not called by cores
   // Read ELF file
   ELFIO::elfio reader;
   if (!reader.load(elfFile)) {
     fprintf(stderr, "Fail to load ELF file %s!\n", elfFile);
     return -1;
   }
+
+  // printElfInfo(&reader);
 
   if (verbose) {
     printElfInfo(&reader);
@@ -93,7 +107,7 @@ int main(int argc, char **argv) {
   simulator.verbose = verbose;
   simulator.shouldDumpHistory = dumpHistory;
   simulator.branchPredictor->strategy = strategy;
-  simulator.pc = reader.get_entry();
+  simulator.pc                        = reader.get_entry();
   simulator.initStack(stackBaseAddr, stackSize);
   simulator.simulate();
   if (dumpHistory) {
@@ -233,7 +247,7 @@ void loadElfToMemory(ELFIO::elfio *reader, MemoryManager *memory) {
 
     uint32_t filesz = pseg->get_file_size();
     uint32_t memsz = pseg->get_memory_size();
-    uint32_t addr = (uint32_t)pseg->get_virtual_address();
+    uint32_t addr   = ( uint32_t )pseg->get_virtual_address();
 
     for (uint32_t p = addr; p < addr + memsz; ++p) {
       if (!memory->isPageExist(p)) {
@@ -246,5 +260,5 @@ void loadElfToMemory(ELFIO::elfio *reader, MemoryManager *memory) {
         memory->setByteNoCache(p, 0);
       }
     }
-  }
+  }  // Lab3: 需要加载两个elf到memory里？还是实现硬盘和地址转换？ 2022.11.8: 编译时修改ELF来实现两个elf不冲突地加载到memory。初步测试没问题。
 }
