@@ -110,9 +110,11 @@ void simulateCache(std::ofstream &csvFile, uint32_t cacheSize,
   // Initialize memory and cache
   MemoryManager *memory = nullptr;
   Cache *cache = nullptr;
-  memory = new MemoryManager();
+  Cache*         cache1 = nullptr;
+  memory                = new MemoryManager();
   cache = new Cache(memory, policy, 1, nullptr, writeBack, writeAllocate);
-  memory->setCache(cache);
+  cache1                 = new Cache(memory, policy, 1, nullptr, writeBack, writeAllocate);
+  memory->setCache(cache, cache1);
 
   cache->printInfo(false);
 

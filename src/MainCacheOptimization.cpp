@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
   l3cache = new Cache(memory, l3policy, 3);
   l2cache = new Cache(memory, l2policy, 2, l3cache);
   l1cache = new Cache(memory, l1policy,1, l2cache);
-  memory->setCache(l1cache);
+  memory->setCache(l1cache, l1cache);  //! randomly set here!
 
   // Read and execute trace in cache-trace/ folder
   std::ifstream trace(traceFilePath);
@@ -69,10 +69,10 @@ int main(int argc, char **argv) {
       memory->addPage(addr);
     switch (type) {
     case 'r':
-        memory->getByte(addr, -1);
+        memory->getByte(addr, 0, -1);
         break;
     case 'w':
-        memory->setByte(addr, 0, -1);
+        memory->setByte(addr, 1, -1);
         break;
     default:
       dbgprintf("Illegal type %c\n", type);

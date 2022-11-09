@@ -16,6 +16,8 @@
 #include "MemoryManager.h"
 #include "Simulator.h"
 
+#define DUALCORE
+
 bool parseParameters(int argc, char **argv);
 void printUsage();
 void printElfInfo(ELFIO::elfio *reader);
@@ -23,12 +25,17 @@ void loadElfToMemory(ELFIO::elfio *reader, MemoryManager *memory);
 
 
 char *elfFile = nullptr;
+char* core0Elf = nullptr;
+char* core1Elf = nullptr;
+
 bool verbose = 0;
 bool isSingleStep = 0;
 bool dumpHistory = 0;
 uint32_t stackBaseAddr      = 0x80000000;  // Core 0
 uint32_t stackBaseAddrCore1 = 0x70000000;  // Core 1
 uint32_t stackSize          = 0x400000;    // Core 0 and Core 1
+
+uint32_t clockCycle = 0;
 
 MemoryManager memory;
 Cache *l1Cache, *l2Cache, *l3Cache;
@@ -39,8 +46,8 @@ BranchPredictor::Strategy strategy = BranchPredictor::Strategy::NT;
 BranchPredictor branchPredictor;
 BranchPredictor branchPredictorCore1;
 
-Simulator simulator(&memory, &branchPredictor);
-Simulator simulatorCore1(&memory, &branchPredictorCore1);  // share memory but not BP
+Simulator simulator(&memory, &branchPredictor, 0);
+Simulator simulatorCore1(&memory, &branchPredictorCore1, 1);  // share memory but not BP
 
 int main(int argc, char **argv) {
   if (!parseParameters(argc, argv)) {
@@ -82,23 +89,35 @@ int main(int argc, char **argv) {
   l2CacheCore1 = new Cache(&memory, l2Policy, 2, l3Cache);
   l1CacheCore1 = new Cache(&memory, l1Policy, 1, l2CacheCore1);
 
-  memory.setCache(l1Cache);  //? how to add Core0 cache and Core1 cache? add core number as an parameter in memory::get/setByte()?
-                             // so core number should be added in simulator.cpp as well use set/getnocache when functions are not called by cores
+  memory.setCache(l1Cache, l1CacheCore1);  // todo: how to add Core0 cache and Core1 cache? add core number as an parameter in memory::get/setByte()?
+                                           // todo： so core number should be added in simulator.cpp as well use set/getnocache when functions are not called by cores
   // Read ELF file
   ELFIO::elfio reader;
-  if (!reader.load(elfFile)) {
-    fprintf(stderr, "Fail to load ELF file %s!\n", elfFile);
-    return -1;
-  }
+  ELFIO::elfio readerCore1;
 
-  // printElfInfo(&reader);
+  // if (!reader.load(elfFile)) {
+  //     fprintf(stderr, "Fail to load ELF file %s!\n", elfFile);
+  //     return -1;
+  // }
+
+#ifdef DUALCORE  //这次不考虑切换的事了？
+  if (!reader.load(core0Elf)) {
+      fprintf(stderr, "Fail to load ELF file %s!\n", core0Elf);
+      return -1;
+  }
+  if (!readerCore1.load(core1Elf)) {
+      fprintf(stderr, "Fail to load ELF file %s!\n", core1Elf);
+      return -1;
+  }
+#endif
 
   if (verbose) {
     printElfInfo(&reader);
   }
-
-  loadElfToMemory(&reader, &memory);
-
+#ifdef DUALCORE
+  loadElfToMemory(&reader, &memory);       // Core0
+  loadElfToMemory(&readerCore1, &memory);  // Core1
+#endif
   if (verbose) {
     memory.printInfo();
   }
@@ -109,11 +128,39 @@ int main(int argc, char **argv) {
   simulator.branchPredictor->strategy = strategy;
   simulator.pc                        = reader.get_entry();
   simulator.initStack(stackBaseAddr, stackSize);
-  simulator.simulate();
-  if (dumpHistory) {
-    printf("Dumping history to dump.txt...\n");
-    simulator.dumpHistory();
+
+  simulatorCore1.isSingleStep              = isSingleStep;  // share these 3 parameters
+  simulatorCore1.verbose                   = verbose;
+  simulatorCore1.shouldDumpHistory         = dumpHistory;
+  simulatorCore1.branchPredictor->strategy = strategy;
+  simulatorCore1.pc                        = readerCore1.get_entry();
+  simulatorCore1.initStack(stackBaseAddrCore1, stackSize);
+
+  // simulator.simulate();
+
+  simulator.setUp();
+  simulatorCore1.setUp();
+
+#ifdef DUALCORE
+  while (true) {
+      if (!simulator.terminateCore()) {
+          simulator.singleStep(clockCycle);
+      }
+      if (!simulatorCore1.terminateCore()) {
+          simulatorCore1.singleStep(clockCycle);
+      }
+      if (simulator.terminateCore() && simulatorCore1.terminateCore()) {
+          break;
+      }
   }
+#endif
+
+  if (dumpHistory) {
+      printf("Dumping history to dump.txt...\n");
+      simulator.dumpHistory();
+  }
+  delete l1CacheCore1;
+  delete l2CacheCore1;
   delete l1Cache;
   delete l2Cache;
   delete l3Cache;
@@ -134,6 +181,29 @@ bool parseParameters(int argc, char **argv) {
       case 'd':
         dumpHistory = 1;
         break;
+      case 'c': {
+          if (argv[i][2] == '0') {
+              if (core0Elf == nullptr) {
+                  core0Elf = argv[i + 1];
+              }
+              else {
+                  return false;
+              }
+          }
+          else if (argv[i][2] == '1') {
+              if (core1Elf == nullptr) {
+                  core1Elf = argv[i + 1];
+              }
+              else {
+                  return false;
+              }
+          }
+          else {
+              printf("Invalid core number\n");
+              return false;
+          }
+          break;
+      }
       case 'b':
         if (i + 1 < argc) {
           std::string str = argv[i + 1];
@@ -161,16 +231,16 @@ bool parseParameters(int argc, char **argv) {
         return false;
       }
     } else {
-      if (elfFile == nullptr) {
-        elfFile = argv[i];
-      } else {
-        return false;
-      }
+        // if (elfFile == nullptr) {
+        //   elfFile = argv[i];
+        // } else {
+        //   return false;
+        // }
     }
-  }
-  if (elfFile == nullptr) {
-    return false;
-  }
+  }  // !:parseparameter里并不限制单核或双核，都可以，单双的切换要放到main里
+  // if (elfFile == nullptr) {
+  //   return false;
+  // }
   return true;
 }
 

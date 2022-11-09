@@ -182,18 +182,26 @@ public:
   BranchPredictor *branchPredictor;
   std::set<int64_t> reservation;
 
-  Simulator(MemoryManager *memory, BranchPredictor *predictor);
+  Simulator(MemoryManager* memory, BranchPredictor* predictor, int corenumber);
   ~Simulator();
 
   void initStack(uint32_t baseaddr, uint32_t maxSize);
 
   void simulate();
 
+  void singleStep(uint32_t clockCycle);
+
+  void setUp();
+
   void dumpHistory();
 
   void printInfo();
 
   void printStatistics();
+
+  bool terminateCore() {
+      return terminate;
+  }
 
 private:
   struct FReg {
@@ -257,6 +265,10 @@ private:
   RISCV::RegId executeWBReg;
   bool memoryWriteBack;
   RISCV::RegId memoryWBReg;
+
+  bool terminate;
+
+  int corenumber;
 
   struct History {
     uint32_t instCount;

@@ -60,13 +60,15 @@ const char *INSTNAME[]{
 
 using namespace RISCV;
 
-Simulator::Simulator(MemoryManager *memory, BranchPredictor *predictor) {
-  this->memory = memory;
-  this->branchPredictor = predictor;
-  this->pc = 0;
-  for (int i = 0; i < REGNUM; ++i) {
-    this->reg[i] = 0;
-  }
+Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor, int corenumber) {
+    this->memory          = memory;
+    this->branchPredictor = predictor;
+    this->pc              = 0;
+    this->terminate       = false;
+    this->corenumber      = corenumber;
+    for (int i = 0; i < REGNUM; ++i) {
+        this->reg[i] = 0;
+    }
 }
 
 Simulator::~Simulator() {}
@@ -79,7 +81,7 @@ void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
     if (!this->memory->isPageExist(addr)) {
       this->memory->addPage(addr);
     }
-    this->memory->setByte(addr, 0,-1);//pc为-1
+    this->memory->setByteNoCache(addr, 0);  //不需要cache的就不要用cache
   }
 }
 
@@ -98,7 +100,7 @@ void Simulator::simulate() {
   fReg.bubble = true;
   dReg.bubble = true;
   eReg.bubble = true;
-  mReg.bubble = true;
+  mReg.bubble = true;  // !: start up
 
   // Main Simulation Loop
   while (true) {  // TODO:执行一个cycle, 要改成一个函数抽出来拿到maincpu里才行，复制粘贴即可？
@@ -146,7 +148,7 @@ void Simulator::simulate() {
           this->pc = this->predictedPC;
       }
 
-      this->history.cycleCount++;
+      this->history.cycleCount++;  // todo:俩核的cycle需要对齐 加一个global cycle，数据统计再说，并不复杂
       this->history.regRecord.push_back(this->getRegInfoStr());
       if (this->history.regRecord.size() >= 100000) {  // Avoid using up memory
           this->history.regRecord.clear();
@@ -169,12 +171,95 @@ void Simulator::simulate() {
   }
 }
 
+void Simulator::setUp() {
+    memset(&this->fReg, 0, sizeof(this->fReg));  // TODO:前面这些simulation的准备工作也可以改成一个函数，放到maincpu里执行，复制粘贴即可？
+    memset(&this->fRegNew, 0, sizeof(this->fRegNew));
+    memset(&this->dReg, 0, sizeof(this->dReg));
+    memset(&this->dRegNew, 0, sizeof(this->dReg));
+    memset(&this->eReg, 0, sizeof(this->eReg));
+    memset(&this->eRegNew, 0, sizeof(this->eRegNew));
+    memset(&this->mReg, 0, sizeof(this->mReg));
+    memset(&this->mRegNew, 0, sizeof(this->mRegNew));
+
+    // Insert Bubble to later pipeline stages
+    fReg.bubble = true;
+    dReg.bubble = true;
+    eReg.bubble = true;
+    mReg.bubble = true;  // !: start up
+}
+void Simulator::singleStep(uint32_t clockCycle) {  // TODO:执行一个cycle, 要改成一个函数抽出来拿到maincpu里才行，复制粘贴即可？while true要拿到两个core的外面
+    if (this->reg[0] != 0) {
+        // Some instruction might set this register to zero
+        this->reg[0] = 0;
+        // this->panic("Register 0's value is not zero!\n");
+    }
+
+    if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
+        this->panic("Stack Overflow!\n");
+    }
+
+    this->executeWriteBack = false;
+    this->executeWBReg     = -1;
+    this->memoryWriteBack  = false;
+    this->memoryWBReg      = -1;
+
+    // THE EXECUTION ORDER of these functions are important!!!
+    // Changing them will introduce strange bugs
+    this->fetch();
+    this->decode();
+    this->excecute();
+    this->memoryAccess();
+    this->writeBack();
+
+    if (!this->fReg.stall)
+        this->fReg = this->fRegNew;
+    else
+        this->fReg.stall--;
+    if (!this->dReg.stall)
+        this->dReg = this->dRegNew;
+    else
+        this->dReg.stall--;
+    this->eReg = this->eRegNew;
+    this->mReg = this->mRegNew;
+    memset(&this->fRegNew, 0, sizeof(this->fRegNew));
+    memset(&this->dRegNew, 0, sizeof(this->dRegNew));
+    memset(&this->eRegNew, 0, sizeof(this->eRegNew));
+    memset(&this->mRegNew, 0, sizeof(this->mRegNew));
+
+    // The Branch perdiction happens here to avoid strange bugs in branch
+    // prediction
+    if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall && this->dReg.predictedBranch) {
+        this->pc = this->predictedPC;
+    }
+
+    this->history.cycleCount++;  // todo:俩核的cycle需要对齐 加一个global cycle，数据统计再说，并不复杂
+    this->history.regRecord.push_back(this->getRegInfoStr());
+    if (this->history.regRecord.size() >= 100000) {  // Avoid using up memory
+        this->history.regRecord.clear();
+        this->history.instRecord.clear();
+    }
+
+    if (verbose) {
+        this->printInfo();
+    }
+
+    if (this->isSingleStep) {
+        printf("Type d to dump memory in dump.txt, press ENTER to continue: ");
+        char ch;
+        while ((ch = getchar()) != '\n') {
+            if (ch == 'd') {
+                this->dumpHistory();
+            }
+        }
+    }
+}
+
 void Simulator::fetch() {
   if (this->pc % 2 != 0) {
     this->panic("Illegal PC 0x%x!\n", this->pc);
   }
 
-  uint32_t inst = this->memory->getInt(this->pc, this->pc);
+  uint32_t inst = this->memory->getInt(this->pc, this->corenumber, this->pc);
   uint32_t len = 4;
 
   if (this->verbose) {
@@ -1031,7 +1116,7 @@ void Simulator::excecute() {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
       this->eRegNew.bubble = true; //???:set to false at the end of execute????
-      this->history.cycleCount--;
+      // this->history.cycleCount--;  //为什么这里要--？似乎是不需要的
       this->history.memoryHazardCount++;
     }
   }
@@ -1040,7 +1125,7 @@ void Simulator::excecute() {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
       this->eRegNew.bubble = true; //??:how did this work??better use a graph
-      this->history.cycleCount--;
+      // this->history.cycleCount--;  //为什么这里要--？
       this->history.memoryHazardCount++; // dRegNew.rs mustn't be read before SC write back
     }
   }
@@ -1124,17 +1209,17 @@ void Simulator::memoryAccess() {
   if (writeMem && reservationsetcheck) { // out should be set to 0 or 1 for sc
     switch (memLen) {
     case 1:
-      good = this->memory->setByte(out, op2, eRegPC, &cycles);
-      break;
+        good = this->memory->setByte(out, op2, this->corenumber, eRegPC, &cycles);
+        break;
     case 2:
-      good = this->memory->setShort(out, op2, eRegPC, &cycles);
-      break;
+        good = this->memory->setShort(out, op2, this->corenumber, eRegPC, &cycles);
+        break;
     case 4:
-      good = this->memory->setInt(out, op2, eRegPC, &cycles);
-      break;
+        good = this->memory->setInt(out, op2, this->corenumber, eRegPC, &cycles);
+        break;
     case 8:
-      good = this->memory->setLong(out, op2, eRegPC, &cycles);
-      break;
+        good = this->memory->setLong(out, op2, this->corenumber, eRegPC, &cycles);
+        break;
     default:
       this->panic("Unknown memLen %d\n", memLen);
     }
@@ -1154,32 +1239,32 @@ void Simulator::memoryAccess() {
     switch (memLen) {
     case 1:
       if (readSignExt) {
-        out = (int64_t)this->memory->getByte(out, eRegPC, &cycles);
+          out = ( int64_t )this->memory->getByte(out, this->corenumber, eRegPC, &cycles);
       } else {
-        out = (uint64_t)this->memory->getByte(out, eRegPC, &cycles);
+          out = ( uint64_t )this->memory->getByte(out, this->corenumber, eRegPC, &cycles);
       }
       break;
     case 2:
       if (readSignExt) {
-        out = (int64_t)this->memory->getShort(out, eRegPC, &cycles);
+          out = ( int64_t )this->memory->getShort(out, this->corenumber, eRegPC, &cycles);
       } else {
-        out = (uint64_t)this->memory->getShort(out, eRegPC, &cycles);
+          out = ( uint64_t )this->memory->getShort(out, this->corenumber, eRegPC, &cycles);
       }
       break;
     case 4:
       if (readSignExt) {
-        out = (int64_t)this->memory->getInt(out, eRegPC, &cycles);
-        // printf("%x\n", out);
+          out = ( int64_t )this->memory->getInt(out, this->corenumber, eRegPC, &cycles);
+          // printf("%x\n", out);
       } else {
-        out = (uint64_t)this->memory->getInt(out, eRegPC, &cycles);
+          out = ( uint64_t )this->memory->getInt(out, this->corenumber, eRegPC, &cycles);
       }
       break;
     case 8:
       if (readSignExt) {
-        out = (int64_t)this->memory->getLong(out, eRegPC, &cycles);
-        // printf("%x\n", out);
+          out = ( int64_t )this->memory->getLong(out, this->corenumber, eRegPC, &cycles);
+          // printf("%x\n", out);
       } else {
-        out = (uint64_t)this->memory->getLong(out, eRegPC, &cycles);
+          out = ( uint64_t )this->memory->getLong(out, this->corenumber, eRegPC, &cycles);
       }
       break;
     default:
@@ -1191,7 +1276,7 @@ void Simulator::memoryAccess() {
   }
 
   // if (cycles != 0) printf("%d\n", cycles);
-  this->history.cycleCount += cycles;
+  this->history.cycleCount += cycles;  // todo:cycles作为参数传出来
 
   if (verbose) {
     printf("Memory Access: %s\n", INSTNAME[inst]);
@@ -1311,10 +1396,10 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
   switch (type) {
   case 0: { // print string
     uint32_t addr = arg1;
-    char ch = this->memory->getByte(addr, -1);
+    char     ch   = this->memory->getByte(addr, this->corenumber);
     while (ch != '\0') {
       printf("%c", ch);
-      ch = this->memory->getByte(++addr, -1);
+      ch = this->memory->getByte(++addr, this->corenumber);
     }
     break;
   }
@@ -1326,17 +1411,18 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
     break;
   case 3:
   case 93: // exit
-    printf("Program exit from an exit() system call\n");
-    if (shouldDumpHistory) {
-      printf("Dumping history to dump.txt...");
-      this->dumpHistory();
-    }
-    this->printStatistics();
-    this->memory->printStatistics();
-    exit(0);
-  case 4: // read char
-    scanf(" %c", (char *)&op1);
-    break;
+      printf("Program exit fom an exit() system call\n");
+      if (shouldDumpHistory) {
+          printf("Dumping history to dump.txt...");
+          this->dumpHistory();
+      }
+      this->printStatistics();
+      this->memory->printStatistics();
+      this->terminate = true;  //!结束本核运行
+      break;
+  case 4:  // read char
+      scanf(" %c", ( char* )&op1);
+      break;
   case 5: // read num
     scanf(" %lld", &op1);
     break;
