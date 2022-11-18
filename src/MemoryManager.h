@@ -21,6 +21,22 @@ public:
   MemoryManager();
   ~MemoryManager();
 
+  struct Directoryblock {  // directory
+      int      MESI;
+      uint32_t blockaddr;  // offset位可以不要,blockaddr实际上就是vector的序号，不用显式存储
+      Cache*   owner;
+      int      sharer;  // 0代表0share，1代表1share，2代表真的share了，-1代表无core share
+      Directoryblock() {}
+      Directoryblock(const Directoryblock& b) {
+          blockaddr = b.blockaddr;
+          MESI      = b.MESI;
+          owner     = b.owner;
+          sharer    = b.sharer;
+      }
+  };
+
+  std::pair<int, std::vector<uint8_t>> MESIoperationmem(int operationcode, uint32_t addr, Cache* issuedcache);
+
   bool addPage(uint32_t addr);
   bool isPageExist(uint32_t addr);
 
@@ -52,10 +68,12 @@ public:
   uint32_t getSecondEntryId(uint32_t addr);
   uint32_t getPageOffset(uint32_t addr);
   bool isAddrExist(uint32_t addr);
+  void     initDirectory();
 
   uint8_t **memory[1024];
   Cache *cache;
   Cache*    core1cache;
+  std::vector<Directoryblock> directoryblocks;
 };
 
 #endif

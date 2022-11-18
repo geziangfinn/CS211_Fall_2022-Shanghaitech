@@ -13,7 +13,9 @@
 //#define EXCLUSIVECACHE
 //#define SDBP
 //#define SDBPTEST
-Cache::Cache(MemoryManager* manager, Policy policy, int cachelevel, Cache* lowerCache, bool writeBack, bool writeAllocate) {
+#define MESILOCK
+//#define DEBUG
+Cache::Cache(MemoryManager* manager, Policy policy, int cachelevel, int corenumber, Cache* lowerCache, bool writeBack, bool writeAllocate) {
     this->referenceCounter = 0;
     this->memory           = manager;
     this->policy           = policy;
@@ -31,6 +33,8 @@ Cache::Cache(MemoryManager* manager, Policy policy, int cachelevel, Cache* lower
     this->writeBack              = writeBack;
     this->writeAllocate          = writeAllocate;
     this->cachelevel             = cachelevel;
+    this->higherCache            = nullptr;
+    this->corenumber             = corenumber;
 }
 
 bool Cache::inCache(uint32_t addr) {
@@ -79,6 +83,15 @@ uint8_t Cache::getByte(uint32_t addr, uint64_t pc, uint32_t* cycles) {
 #endif
         if (cycles)
             *cycles = this->policy.hitLatency;
+#ifdef MESILOCK
+        if (this->cachelevel == 1) {
+            MESIoperationFwd(OWNREAD, addr);
+        }
+#endif
+#ifdef DEBUG
+        if (this->cachelevel == 1)
+            std::cout << "read " << int(this->blocks[blockId].data[offset]) << " at " << std::hex << addr << "\n";
+#endif
         return this->blocks[blockId].data[offset];
     }
 
@@ -111,6 +124,16 @@ uint8_t Cache::getByte(uint32_t addr, uint64_t pc, uint32_t* cycles) {
             this->blocks[blockId].deadblock = this->predictor(pc);  //再预测，其实能load进LLC的肯定不是dead
         }
 #endif
+
+#ifdef MESILOCK
+        if (this->cachelevel == 1) {
+            MESIoperationFwd(OWNREAD, addr);
+        }
+#endif
+#ifdef DEBUG
+        if (this->cachelevel == 1)
+            std::cout << "read " << int(this->blocks[blockId].data[offset]) << " at " << std::hex << addr << "\n";
+#endif
         return this->blocks[blockId].data[offset];
     }
     else {
@@ -139,6 +162,11 @@ void Cache::setByte(uint32_t addr, uint8_t val, uint64_t pc, uint32_t* cycles) {
         this->statistics.totalCycles += this->policy.hitLatency;
         this->blocks[blockId].modified      = true;
         this->blocks[blockId].lastReference = this->referenceCounter;
+#ifdef MESILOCK
+        if (this->cachelevel == 1) {
+            MESIoperationFwd(OWNWRITE, addr);
+        }
+#endif
         this->blocks[blockId].data[offset]  = val;
         if (!this->writeBack) {
             this->writeBlockToLowerLevel(this->blocks[blockId], pc);  //对于exclusive cache，write through应该只写到L1和memory:用setbytenocache替换writetolowerlevel
@@ -151,6 +179,12 @@ void Cache::setByte(uint32_t addr, uint8_t val, uint64_t pc, uint32_t* cycles) {
 #endif
         if (cycles)
             *cycles = this->policy.hitLatency;
+
+#ifdef DEBUG
+        if (this->cachelevel == 1) {
+            std::cout << "set " << int(val) << " at " << std::hex << addr << "\n";
+        }
+#endif
         return;
     }
     //对于通过replace装填lower level,写一定不命中，如果用writetolowerlevel函数，会走到这里，miss不应++，只需要写就行了，modified也不应为true 单独增添一个函数处理replace load的情况？
@@ -177,10 +211,21 @@ void Cache::setByte(uint32_t addr, uint8_t val, uint64_t pc, uint32_t* cycles) {
             uint32_t offset                     = this->getOffset(addr);
             this->blocks[blockId].modified      = true;
             this->blocks[blockId].lastReference = this->referenceCounter;
+#ifdef MESILOCK
+            if (this->cachelevel == 1) {
+                MESIoperationFwd(OWNWRITE, addr);
+            }
+#endif
             this->blocks[blockId].data[offset]  = val;
 #ifdef SDBP
             if (this->lowerCache == nullptr && pc != -1) {              // L3，predict
                 this->blocks[blockId].deadblock = this->predictor(pc);  //预测
+            }
+#endif
+
+#ifdef DEBUG
+            if (this->cachelevel == 1) {
+                std::cout << "set " << int(val) << " at " << std::hex << addr << "\n";
             }
 #endif
             return;
@@ -270,6 +315,7 @@ void Cache::initCache() {
         b.lastReference = 0;
         b.deadblock     = false;
         b.data          = std::vector< uint8_t >(b.size);
+        b.MESI          = INVALID;  // LLC里的都是INVALID，但是无所谓，它已经不属于PRIVATE CACHE了
     }
     this->samplerblocks = std::vector<SamplerBlock>(policy.samplerblockNum);
     for (uint32_t i = 0; i < this->samplerblocks.size(); ++i) {
@@ -299,6 +345,7 @@ void Cache::loadBlockFromLowerLevel(uint32_t addr, uint64_t pc, uint32_t* cycles
     b.size                  = blockSize;
     b.data                  = std::vector< uint8_t >(b.size);
     b.deadblock             = false;
+    b.MESI                  = INVALID;  //! 如果L2中命中，则L2不会调用这一句，否则则应该调用这一句，因为cache（L1+L2）MISS 了
     uint32_t bits           = this->log2i(blockSize);
     uint32_t mask           = ~((1 << bits) - 1);
     uint32_t blockAddrBegin = addr & mask;
@@ -312,6 +359,13 @@ void Cache::loadBlockFromLowerLevel(uint32_t addr, uint64_t pc, uint32_t* cycles
             b.data[i - blockAddrBegin] = this->lowerCache->getByte(i, pc, cycles);  // exclusive cache: flush data from lower level cache when loading:set to invalid?
         // TODO: exclusive cache 现行的实现会从memory或lowerlevel加载到每一个higher level，evict时不会放到lower level
     }
+
+    if (cachelevel == 1)  //! 此时L2里肯定已经有了
+    {
+        b.MESI = this->lowerCache->blocks[this->lowerCache->getBlockId(addr)].MESI;  // INVALID 或L2命中时L2中的MESI状态
+    }
+    //! 如果在LLC或memory命中，那么cache中block的mesi初始状态是invalid，放在cache的mesi函数中处理，如果在L2命中，MESI状态一定不是INVALID，
+    //! 需要把L2中的mesi状态传递上去,因为invalid态的更新不会留到下一个cycle。且L2中的数据是最新的，由policy保证，与MESI无关
     //这里replace包含valid和invalid两种情况，不是valid的那个替换，即需要写到下一级的那种。
     // Find replace block
     uint32_t id           = this->getId(addr);
@@ -320,6 +374,12 @@ void Cache::loadBlockFromLowerLevel(uint32_t addr, uint64_t pc, uint32_t* cycles
     uint32_t replaceId    = this->getReplacementBlockId(blockIdBegin, blockIdEnd);  // exclusive cache: flush from higher level cache and put in lower level
     Block    replaceBlock =
         this->blocks[replaceId];  // exclusive cache：只要被替换（replaceblock.valid=true），不管是不是dirty，是不是writeback，都要写并且只写到下一级，L3的victim是写到内存(dirty writeback)或者扔掉
+
+    if (this->cachelevel == 1 || this->cachelevel == 2) {
+        // std::cout << replaceBlock.MESI << " " << this->corenumber << " evcit " << std::hex << this->getAddr(replaceBlock) << " from level" << this->cachelevel << "\n";
+        this->MESIevict(replaceBlock);
+    }
+
     if (this->writeBack && replaceBlock.valid && replaceBlock.modified) {  // write back to memory                           // Task2: 写回时调用getSamplerBlockId不算
         this->writeBlockToLowerLevel(replaceBlock, -1);                    // 通过writeback调用setbyte的不能算命中？
         //没有修改的Victim会被扔掉，应改为放且只放到下一级，还是单独加一个函数来处理好,这里就给Writeback用，新函数调用的也应该是新函数。
@@ -891,4 +951,359 @@ uint64_t Cache::skewh(uint64_t partialPC) {
 uint64_t Cache::reverseskewh(uint64_t partialPC) {
     uint64_t mask = (1 << 12) - 1;
     return ((partialPC >> 11) ^ ((partialPC >> 10) & 1)) | ((partialPC << 1) & mask);
+}
+
+void Cache::MESIoperationFwd(int operationcode, uint32_t addr) {  //?将本函数分成forward和receive两块？ forward肯定是在L1调用，因为要读写的block会被拉到L1，receive时，要操作的块不一定在哪呢
+    // operation应当对L1和L2中的块都进行。要注意函数被L1还是L2调用，放在哪里调用。
+    if (this->cachelevel != 1) {
+        std::cout << "fwd error!\n";
+        exit(0);
+    }
+    std::pair<int, std::vector<uint8_t>> memmesireturn;
+
+    uint32_t blockaddr = addr >> 6;
+
+    int directoryoriginalmesi;
+
+    std::vector<uint8_t> datafromothercore;
+
+    int original = this->readBlockMESIfromCache(addr);
+
+    int newmesi;
+    // ! ownread/write时，数据一定会被拉到L1里，在L1的get/set里，块已在L1中之后调用本函数，调用者一定是L1
+    // !otherread/write时由memorymanager的mesi函数调用，调用的cache仍然是L1。提供数据放到另一个函数？
+    // !evict: 只有l1或l2中保存了本块时，在发生替换时由本core调用
+    switch (operationcode) {
+    case OWNREAD:
+        switch (original) {
+        case MODIFIED:
+            //无需修改 silent
+            break;
+        case EXCLUSIVE:
+            // std::cout << "core " << this->corenumber << " request " << std::hex << addr << "(block: " << int(blockaddr) << ") : E->E\n";
+            //无需修改
+            break;
+        case SHARED:
+            //无需修改
+            break;
+        case INVALID:
+            // INVALID时，L2里一定有，因为是一路load上去的
+            memmesireturn = this->memory->MESIoperationmem(OWNREAD, addr, this);  //报告directory
+
+            directoryoriginalmesi = memmesireturn.first;
+            datafromothercore     = memmesireturn.second;
+
+            newmesi = SHARED;
+            if (directoryoriginalmesi == INVALID) {
+                newmesi = EXCLUSIVE;
+            }
+            if (directoryoriginalmesi == MODIFIED || directoryoriginalmesi == EXCLUSIVE) {
+                this->setdatainCache(addr, datafromothercore);  // ! potential bug because '=' for vector
+            }
+            this->setBlockMESIinCache(addr, newmesi);  //修改两级中block的mesi和数据
+            //! directory中原状态为 M/E 时需要读other core, S/I时直接读LLC/memory，数据不用改。
+            //  todo:确定状态转到S还是E需要先访问directory，
+            //  todo 数据从哪来？directory中为M或E时要从othercore来，否则从
+            //  todo memory来  默认从LLC和memory读，读上来后一定是INVALID态，再在这里改数据。状态也在这里修改。
+            break;
+        default:
+            break;
+        }
+        break;
+    case OWNWRITE:  //数据的修改要放在这里吗？
+        switch (original) {
+        case MODIFIED:  // M->M
+            //无需修改
+            break;
+        case EXCLUSIVE:  // silently E->M
+            newmesi = MODIFIED;
+            this->setBlockMESIinCache(addr, newmesi);
+            // todo 两级cache里的都要改
+            // todo 无需报告directory或向别的core发送invalidate
+            break;
+        case SHARED:                                                               // S->M
+            memmesireturn = this->memory->MESIoperationmem(OWNWRITE, addr, this);  //!此时directory中一定是S
+            //! potential bug caused by 'this'
+            //!向directory发送的都是own，directory发送的都是other，directory里先检查block和directory状态是否相符？
+            newmesi = MODIFIED;
+            this->setBlockMESIinCache(addr, newmesi);
+            //!修改的数据的写入由policy完成
+            // todo 两级cache里的都要改
+            // todo 报告directory，由directory向别的core发送invalidate（也可能本core是唯一sharer）directory里改modified
+            break;
+        case INVALID:  // I->M
+                       // !INVALID时，L2里一定有本块，因为是一路load上去的
+            memmesireturn         = this->memory->MESIoperationmem(OWNWRITE, addr, this);
+            directoryoriginalmesi = memmesireturn.first;
+            if (directoryoriginalmesi == MODIFIED) {
+                // std::cout << "reached here\n";
+                datafromothercore = memmesireturn.second;       // 114514
+                this->setdatainCache(addr, datafromothercore);  // 114514
+            }
+            //  directoryoriginalmesi = memmesireturn.first;//无需返回数据
+            newmesi = MODIFIED;
+            this->setBlockMESIinCache(addr, newmesi);
+            // !修改的数据的写入由policy完成。这样L1中的数据是最新的，L2中的不是，这由policy管，跟平常一样，从LLC/MEMORYload后，L1写了最新数据，L2并没有
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void Cache::MESIoperationRec(int operationcode, uint32_t addr) {  //本函数还是被L1cache调用，但块不一定在L1还是L2
+    if (this->cachelevel != 1) {
+        std::cout << "rec error!\n";
+        exit(0);
+    }
+    int original;
+    original = this->readBlockMESIfromCache(addr);
+    int          newmesi;
+    Cache::Block blocktobewrittenback;
+    switch (operationcode) {
+    case OTHERREAD:
+        switch (original) {
+        case MODIFIED:  // M->S
+            newmesi                  = SHARED;
+            blocktobewrittenback     = this->dataTrans(addr);
+            blocktobewrittenback.tag = this->lowerCache->getTag(addr);
+            blocktobewrittenback.id  = this->lowerCache->getId(addr);
+            this->lowerCache->writeBlockToLowerLevel(blocktobewrittenback, -1);  //! potential bug!!!
+            this->setBlockMESIinCache(addr, newmesi);
+            //? M->S时应该把dirty改掉？一定要写回吗？？？？
+            // todo 写回到LLC即可？
+            //  todo 两级cache里的都要改
+            //  todo 提供数据并将数据写回LLC/memory，状态改为S，requestor应为 I->S
+            //  todo 提供数据的操作在mem里，两级都找，这里只要改状态，
+            //! 但是改状态也要找两级cache，block不一定在L1还是L2
+            break;
+        case EXCLUSIVE:
+            newmesi                  = SHARED;
+            blocktobewrittenback     = this->dataTrans(addr);
+            blocktobewrittenback.tag = this->lowerCache->getTag(addr);
+            blocktobewrittenback.id  = this->lowerCache->getId(addr);
+            this->lowerCache->writeBlockToLowerLevel(blocktobewrittenback, -1);  //! potential bug!!!
+            this->setBlockMESIinCache(addr, newmesi);
+            // todo 写回到LLC即可？写回到LLC的话注意要设dirty: 由policy完成
+            // todo 两级cache里的都要改
+            // todo 提供数据的操作在mem里，两级都找，这里只要改状态，
+            // todo 提供数据，状态改为S，requestor应为 I->S
+            break;
+        case SHARED:
+            //无需修改，状态不改，也不需要提供数据
+            break;
+        case INVALID:
+            std::cout << "otherread 0\n";  //雨我无瓜，无操作
+            break;
+        default:
+            break;
+        }
+        break;
+    case OTHERWRITE:
+        switch (original) {
+        case MODIFIED:  //本Core是owner，requestor是I->M
+            newmesi = INVALID;
+            this->setBlockMESIinCache(addr, newmesi);
+            this->invalidateBlockinCache(addr);
+            // todo 两级cache里的都要改
+            // todo invalidate，不用写回，因为requestor马上又要写了 slides里标了个写回
+            //! 需要传数据！false sharing
+            break;
+        case EXCLUSIVE:  //本Core是owner，requestor是I->M
+            newmesi = INVALID;
+            this->setBlockMESIinCache(addr, newmesi);
+            this->invalidateBlockinCache(addr);
+            // todo 两级cache里的都要改
+            // todo invalidate，不用写回，因为requestor马上又要写了 slides里标了个写回
+            //! 需要传数据！false sharing
+            //! M和E区别：putM时需要写回，putE时不需要
+            break;
+        case SHARED:  //本core不是owner，requestor是S->M或I->M
+            newmesi = INVALID;
+            this->setBlockMESIinCache(addr, newmesi);
+            this->invalidateBlockinCache(addr);
+            // todo 两级cache里的都要改
+            // todo invalidate
+            break;
+        case INVALID:
+            std::cout << "otherwrite 0\n";  //雨我无瓜，无操作
+            break;
+        default:
+            break;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+int Cache::readBlockMESIfromCache(uint32_t addr) {
+    if (this->cachelevel != 1) {
+        std::cout << "read mesi error\n";
+        exit(0);
+    }
+    int blockId = this->getBlockId(addr);
+    if (blockId != -1) {  //优先读L1，未检查两级中mesi状态是否相等
+        return this->blocks[blockId].MESI;
+    }
+    else {
+        blockId = this->lowerCache->getBlockId(addr);
+        if (blockId == -1) {
+            std::cout << "data not in l1 or l2a\n";
+            exit(0);
+        }
+        return this->lowerCache->blocks[blockId].MESI;
+    }
+}
+
+void Cache::setBlockMESIinCache(uint32_t addr, int mesi) {
+    if (this->cachelevel != 1) {
+        std::cout << "set mesi error\n";
+        exit(0);
+    }
+    bool whetherinbothlevel = this->inCache(addr) && this->lowerCache->inCache(addr);  //为真则块在both level
+    int  blockId            = this->getBlockId(addr);
+    if (blockId != -1) {  //块在L1
+        this->blocks[blockId].MESI = mesi;
+        if (whetherinbothlevel) {  //块也在L2
+            blockId                                = this->lowerCache->getBlockId(addr);
+            this->lowerCache->blocks[blockId].MESI = mesi;
+        }
+    }
+    else {  //块只在L2
+        blockId = this->lowerCache->getBlockId(addr);
+        if (blockId == -1) {
+            std::cout << "data not in l1 or l2b\n";
+            exit(0);
+        }
+        this->lowerCache->blocks[blockId].MESI = mesi;
+    }
+}
+
+Cache::Block Cache::dataTrans(uint32_t addr) {
+    if (this->cachelevel != 1) {
+        std::cout << "data trans error!\n";
+        exit(0);
+    }
+    int blockId = this->getBlockId(addr);
+
+    if (blockId != -1) {
+        return blocks[blockId];
+    }
+    else {
+        blockId = this->lowerCache->getBlockId(addr);
+        return this->lowerCache->blocks[blockId];
+    }
+}
+
+void Cache::setdatainCache(uint32_t addr, std::vector<uint8_t> block) {
+    if (this->cachelevel != 1) {
+        std::cout << "set mesi error\n";
+        exit(0);
+    }
+    bool whetherinbothlevel = this->inCache(addr) && this->lowerCache->inCache(addr);  //为真则块在both level
+    int  blockId            = this->getBlockId(addr);
+    if (blockId != -1) {  //块在L1
+        this->blocks[blockId].data = block;
+        if (whetherinbothlevel) {  //块也在L2
+            blockId                                = this->lowerCache->getBlockId(addr);
+            this->lowerCache->blocks[blockId].data = block;
+        }
+    }
+    else {  //块只在L2
+        blockId = this->lowerCache->getBlockId(addr);
+        if (blockId == -1) {
+            std::cout << "data not in l1 or l2d\n";
+            exit(0);
+        }
+        this->lowerCache->blocks[blockId].data = block;
+    }
+}
+
+void Cache::invalidateBlockinCache(uint32_t addr) {
+    if (this->cachelevel != 1) {
+        std::cout << "invalidate error\n";
+        exit(0);
+    }
+    bool whetherinbothlevel = this->inCache(addr) && this->lowerCache->inCache(addr);  //为真则块在both level
+    int  blockId            = this->getBlockId(addr);
+    if (blockId != -1) {  //块在L1
+        this->blocks[blockId].valid = false;
+        if (whetherinbothlevel) {  //块也在L2
+            blockId                                 = this->lowerCache->getBlockId(addr);
+            this->lowerCache->blocks[blockId].valid = false;
+        }
+    }
+    else {  //块只在L2
+        blockId = this->lowerCache->getBlockId(addr);
+        if (blockId == -1) {
+            std::cout << "data not in l1 or l2e\n";
+            exit(0);
+        }
+        this->lowerCache->blocks[blockId].valid = false;
+    }
+}
+
+void Cache::MESIevict(Block& Block) {  //!本函数由L1或L2调用
+    if (this->cachelevel != 1 && this->cachelevel != 2) {
+        std::cout << "evict error\n";
+        exit(0);
+    }
+    std::pair<int, std::vector<uint8_t>> returnPair;
+    uint32_t                             addr = this->getAddr(Block);
+    // std::cout << std::hex << Block.tag << Block.id;
+    // std::cout << addr" evicted\n";
+    bool   isthisblockonlyinonelevel;
+    Cache* memorycontrlcache;
+    if (this->cachelevel == 1) {
+        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->lowerCache->inCache(addr));
+        memorycontrlcache         = this;
+    }
+    else {
+        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->higherCache->inCache(addr));
+        memorycontrlcache         = this->higherCache;
+    }
+
+    int original = Block.MESI;
+
+    uint32_t blockaddr = addr >> 6;
+    // if (!isthisblockonlyinonelevel)
+    // std::cout << "114514\n";
+
+    if (isthisblockonlyinonelevel) {
+        switch (original) {
+        case MODIFIED:  // PUTM
+            if (this->cachelevel == 2) {
+                returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            }
+            //? 写回由policy完成？ L1也需要写回，不是写回L2而是写回LLC
+            // 如果block只在L1，那么不算evict，因为他是modifid，dirty，会被写回L2 要保证MODIFIED的block一定是dirty
+            // 这与EXCLUSIVE 和 SHARED 不一致，这两个如果只在L1就丢掉了
+            // !L2中被evcit时本来就要写回，写回由policy完成？
+            // todo 此时L1或L2中只有某一级含该block，先判断是哪一级再调用
+            // todo 写回，directory状态改为Invalidate，写回可由policy完成？
+            // block的状态无需再改，都不在Cache里了
+            break;
+        case EXCLUSIVE:  // PUTE
+            std::cout << "core " << this->corenumber << " request " << std::hex << addr << "(block: " << int(blockaddr) << ") : E->I\n";
+            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            // todo 此时L1或L2中只有某一级含该block
+            // todo 无需写回，directory状态改为Invalidate
+            break;
+        case SHARED:  // PUTS
+            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            // todo 此时L1或L2中只有某一级含该block
+            // todo 无需写回，cache中block状态改为Invalidate，directory中可能是S可能是E
+            break;
+        case INVALID:
+            //无操作
+            break;
+        default:
+            break;
+        }
+    }
 }

@@ -203,6 +203,13 @@ public:
       return terminate;
   }
 
+  int stallCycles() {
+      int temp = this->memoryStallCycles;
+      if (memoryStallCycles > 0)
+          memoryStallCycles--;
+      return temp;
+  }
+
 private:
   struct FReg {
     // Control Signals
@@ -269,6 +276,8 @@ private:
   bool terminate;
 
   int corenumber;
+
+  int memoryStallCycles;
 
   struct History {
     uint32_t instCount;

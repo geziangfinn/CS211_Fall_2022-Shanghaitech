@@ -48,12 +48,20 @@ int main(int argc, char **argv) {
 
   // Initialize memory and cache
   MemoryManager *memory = nullptr;
-  Cache *l1cache = nullptr, *l2cache = nullptr, *l3cache = nullptr;
+  Cache *        l1cache = nullptr, *l2cache = nullptr, *l3cache = nullptr, *l2cacheCore1 = nullptr, *l1cacheCore1 = nullptr;
   memory = new MemoryManager();
-  l3cache = new Cache(memory, l3policy, 3);
-  l2cache = new Cache(memory, l2policy, 2, l3cache);
-  l1cache = new Cache(memory, l1policy,1, l2cache);
-  memory->setCache(l1cache, l1cache);  //! randomly set here!
+  l3cache = new Cache(memory, l3policy, 3, 0);
+  l2cache = new Cache(memory, l2policy, 2, 0, l3cache);
+  l1cache = new Cache(memory, l1policy, 1, 0, l2cache);
+
+  l2cacheCore1 = new Cache(memory, l2policy, 2, 1, l3cache);
+  l1cacheCore1 = new Cache(memory, l1policy, 1, 1, l2cacheCore1);
+
+  l2cacheCore1->higherCache = l1cacheCore1;
+  l2cache->higherCache      = l1cache;  // Connect all cache controllers with a ring
+
+  memory->setCache(l1cache, l1cacheCore1);
+  // memory->setCache(l1cache, l1cache);  //! randomly set here!
 
   // Read and execute trace in cache-trace/ folder
   std::ifstream trace(traceFilePath);
@@ -63,21 +71,44 @@ int main(int argc, char **argv) {
   }
 
   char type; //'r' for read, 'w' for write
+  char     corenumber;
   uint32_t addr;
-  while (trace >> type >> std::hex >> addr) {
-    if (!memory->isPageExist(addr))
-      memory->addPage(addr);
-    switch (type) {
-    case 'r':
-        memory->getByte(addr, 0, -1);
-        break;
-    case 'w':
-        memory->setByte(addr, 1, -1);
-        break;
-    default:
-      dbgprintf("Illegal type %c\n", type);
-      exit(-1);
-    }
+  while (trace >> type >> corenumber >> std::hex >> addr) {
+      if (!memory->isPageExist(addr))
+          memory->addPage(addr);
+      switch (type) {
+      case 'r':
+          switch (corenumber) {
+          case '0':
+              std::cout << "core 0 ";
+              memory->getByte(addr, 0);
+              break;
+          case '1':
+              std::cout << "core 1 ";
+              memory->getByte(addr, 1);
+              break;
+          default:
+              break;
+          }
+          break;
+      case 'w':
+          switch (corenumber) {
+          case '0':
+              std::cout << "core 0 ";
+              memory->setByte(addr, 1, 0);
+              break;
+          case '1':
+              std::cout << "core 1 ";
+              memory->setByte(addr, 1, 1);
+              break;
+          default:
+              break;
+          }
+          break;
+      default:
+          dbgprintf("Illegal type %c\n", type);
+          exit(-1);
+      }
   }
 
   // Output Simulation Results

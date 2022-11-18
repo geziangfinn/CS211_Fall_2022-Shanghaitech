@@ -112,8 +112,8 @@ void simulateCache(std::ofstream &csvFile, uint32_t cacheSize,
   Cache *cache = nullptr;
   Cache*         cache1 = nullptr;
   memory                = new MemoryManager();
-  cache = new Cache(memory, policy, 1, nullptr, writeBack, writeAllocate);
-  cache1                 = new Cache(memory, policy, 1, nullptr, writeBack, writeAllocate);
+  cache                 = new Cache(memory, policy, 1, 0, nullptr, writeBack, writeAllocate);
+  cache1                = new Cache(memory, policy, 1, 1, nullptr, writeBack, writeAllocate);
   memory->setCache(cache, cache1);
 
   cache->printInfo(false);
@@ -126,31 +126,50 @@ void simulateCache(std::ofstream &csvFile, uint32_t cacheSize,
   }
 
   char type; //'r' for read, 'w' for write
+  char     corenumber;
   uint32_t addr;
   while (trace >> type >> std::hex >> addr) {
-    if (verbose)
-      printf("%c %x\n", type, addr);
-    if (!memory->isPageExist(addr))
-      memory->addPage(addr);
-    switch (type) {
-    case 'r':
-        cache->getByte(addr, -1);
-        break;
-    case 'w':
-        cache->setByte(addr, 0, -1);
-        break;
-    default:
-      dbgprintf("Illegal type %c\n", type);
-      exit(-1);
-    }
+      if (verbose)
+          printf("%c %x\n", type, addr);
+      if (!memory->isPageExist(addr))
+          memory->addPage(addr);
+      switch (type) {
+      case 'r':
+          switch (corenumber) {
+          case '0':
+              cache->getByte(addr, -1);
+              break;
+          case '1':
+              cache1->getByte(addr, -1);
+              break;
+          default:
+              break;
+          }
+          break;
+      case 'w':
+          switch (corenumber) {
+          case '0':
+              cache->setByte(addr, 0, -1);
+              break;
+          case '1':
+              cache1->setByte(addr, 0, -1);
+              break;
+          default:
+              break;
+          }
+          break;
+      default:
+          dbgprintf("Illegal type %c\n", type);
+          exit(-1);
+      }
 
-    if (verbose)
-      cache->printInfo(true);
+      if (verbose)
+          cache->printInfo(true);
 
-    if (isSingleStep) {
-      printf("Press Enter to Continue...");
-      getchar();
-    }
+      if (isSingleStep) {
+          printf("Press Enter to Continue...");
+          getchar();
+      }
   }
 
   // Output Simulation Results

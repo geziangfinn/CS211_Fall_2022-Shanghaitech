@@ -66,6 +66,7 @@ Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor, int core
     this->pc              = 0;
     this->terminate       = false;
     this->corenumber      = corenumber;
+    this->memoryStallCycles = 0;
     for (int i = 0; i < REGNUM; ++i) {
         this->reg[i] = 0;
     }
@@ -1277,6 +1278,7 @@ void Simulator::memoryAccess() {
 
   // if (cycles != 0) printf("%d\n", cycles);
   this->history.cycleCount += cycles;  // todo:cycles作为参数传出来
+  this->memoryStallCycles = cycles;
 
   if (verbose) {
     printf("Memory Access: %s\n", INSTNAME[inst]);
@@ -1416,8 +1418,8 @@ int64_t Simulator::handleSystemCall(int64_t op1, int64_t op2) {
           printf("Dumping history to dump.txt...");
           this->dumpHistory();
       }
-      this->printStatistics();
-      this->memory->printStatistics();
+      // this->printStatistics();
+      // this->memory->printStatistics();
       this->terminate = true;  //!结束本核运行
       break;
   case 4:  // read char

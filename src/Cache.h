@@ -13,7 +13,19 @@
 #include "MemoryManager.h"
 
 class MemoryManager;
-
+enum MESICode {
+    INVALID   = 0,
+    SHARED    = 1,
+    EXCLUSIVE = 2,
+    MODIFIED  = 3,
+};
+enum MESIOPERATION {
+    OWNREAD    = 0,
+    OWNWRITE   = 1,
+    OTHERREAD  = 2,
+    OTHERWRITE = 3,
+    EVICT      = 4,
+};
 class Cache {
 public:
     struct Policy {
@@ -50,9 +62,11 @@ public:
         uint32_t             lastReference;
         std::vector<uint8_t> data;
         bool                 deadblock;
+        int                  MESI;
         Block() {}
         Block(const Block& b) : valid(b.valid), modified(b.modified), tag(b.tag), id(b.id), size(b.size) {
             data = b.data;
+            MESI = b.MESI;
         }
     };
 
@@ -64,7 +78,7 @@ public:
         uint64_t totalCycles;
     };
 
-    Cache(MemoryManager* manager, Policy policy, int cachelevel, Cache* lowerCache = nullptr, bool writeBack = true, bool writeAllocate = true);
+    Cache(MemoryManager* manager, Policy policy, int cachelevel, int corenumber, Cache* lowerCache = nullptr, bool writeBack = true, bool writeAllocate = true);
 
     bool     inCache(uint32_t addr);
     uint32_t getBlockId(uint32_t addr);
@@ -79,6 +93,16 @@ public:
     uint32_t   getSamplerBlockId(uint32_t addr);
     uint32_t   getSamplerSetId(uint32_t addr);
     Statistics statistics;
+    void         MESIoperationFwd(int operationcode, uint32_t addr);
+    void         MESIoperationRec(int operationcode, uint32_t addr);
+    void         MESIevict(Block& Block);
+    Cache::Block dataTrans(uint32_t addr);
+    void         setdatainCache(uint32_t addr, std::vector<uint8_t> block);
+    int          readBlockMESIfromCache(uint32_t addr);         //只由L1调用
+    void         setBlockMESIinCache(uint32_t addr, int mesi);  //只由L1调用
+    void         invalidateBlockinCache(uint32_t addr);
+    Cache*       higherCache;
+    int          corenumber;
 
 private:
     uint32_t                  referenceCounter;
@@ -86,6 +110,7 @@ private:
     bool                      writeAllocate;  // default true
     MemoryManager*            memory;
     Cache*                    lowerCache;
+
     Policy                    policy;
     std::vector<Block>        blocks;
     std::vector<SamplerBlock> samplerblocks;

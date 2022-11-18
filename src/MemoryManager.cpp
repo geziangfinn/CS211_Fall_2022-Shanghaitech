@@ -14,6 +14,7 @@ MemoryManager::MemoryManager() {
     for (uint32_t i = 0; i < 1024; ++i) {
         this->memory[i] = nullptr;
     }
+    initDirectory();
 }
 
 MemoryManager::~MemoryManager() {
@@ -113,7 +114,7 @@ bool MemoryManager::setByteNoCache(uint32_t addr, uint8_t val) {
 
 uint8_t MemoryManager::getByte(uint32_t addr, int corenumber, uint64_t pc, uint32_t* cycles) {
     if (!this->isAddrExist(addr)) {
-        dbgprintf("Byte read to invalid addr 0x%x!\n", addr);
+        dbgprintf("Byte re0ad to invalid addr 0x%x!\n", addr);
         return false;
     }
 #ifdef DUALCORE
@@ -144,8 +145,8 @@ uint8_t MemoryManager::getByte(uint32_t addr, int corenumber, uint64_t pc, uint3
 
 uint8_t MemoryManager::getByteNoCache(uint32_t addr) {
   if (!this->isAddrExist(addr)) {
-    dbgprintf("Byte read to invalid addr 0x%x!\n", addr);
-    return false;
+      dbgprintf("Byte re1ad to invalid addr 0x%x!\n", addr);
+      return false;
   }
   uint32_t i = this->getFirstEntryId(addr);
   uint32_t j = this->getSecondEntryId(addr);
@@ -290,4 +291,158 @@ bool MemoryManager::isAddrExist(uint32_t addr) {
 void MemoryManager::setCache(Cache* cache, Cache* core1cache) {
     this->cache      = cache;
     this->core1cache = core1cache;
+}
+
+void MemoryManager::initDirectory() {
+    int directoryblocknumber = 0xFFFFFFC;  // cache size为64B,offset:6bits
+    this->directoryblocks    = std::vector<Directoryblock>(directoryblocknumber);
+    for (uint32_t i = 0; i < this->directoryblocks.size(); ++i) {
+        Directoryblock& b = this->directoryblocks[i];
+        b.MESI            = INVALID;
+        b.blockaddr       = i;
+        b.owner           = nullptr;
+        b.sharer          = -1;
+    }
+}
+
+std::pair<int, std::vector<uint8_t>> MemoryManager::MESIoperationmem(int operationcode, uint32_t addr, Cache* issuedcache) {
+    uint32_t                             blockaddr = addr >> 6;
+    std::pair<int, std::vector<uint8_t>> returnPair;
+
+    int original     = directoryblocks[blockaddr].MESI;
+    int final        = original;
+    returnPair.first = original;
+
+    //? ownread/write M/E时检查requestor是不是invalid?requestor是不是owner？
+    //! issued cache 一定是L1 Cache，L1 Cache当作controller用
+    Cache* sharer = core1cache;
+    if (issuedcache == core1cache)
+        sharer = cache;
+
+    // std::cout << "core " << issuedcache->corenumber << " request " << std::hex << addr << "(block: " << int(blockaddr) << ") : ";
+
+    switch (operationcode) {
+    case OWNREAD:
+        switch (original) {
+        case MODIFIED:  // M->S
+            // std::cout << "M->S\n";
+            final = SHARED;
+            // requestor一定不是owner，因为ownread M->M是个silent操作, requestor一定是INVALID
+            if (directoryblocks[blockaddr].owner == issuedcache)
+                std::cout << "error\n";
+            returnPair.second = directoryblocks[blockaddr].owner->dataTrans(addr).data;
+            directoryblocks[blockaddr].owner->MESIoperationRec(OTHERREAD, addr);
+            //就俩cache，owner一定不是requestor
+            directoryblocks[blockaddr].sharer = 2;  //两个sharer
+            break;
+        case EXCLUSIVE:  // E->S
+            // std::cout << "E->S\n";
+            final = SHARED;
+            // requestor一定不是owner，因为ownread E->E是个silent操作, requestor一定是INVALID
+            returnPair.second = directoryblocks[blockaddr].owner->dataTrans(addr).data;
+            if (directoryblocks[blockaddr].owner == issuedcache)
+                std::cout << "error2\n";
+            directoryblocks[blockaddr].owner->MESIoperationRec(OTHERREAD, addr);
+            //就俩cache，owner一定不是requestor
+            directoryblocks[blockaddr].sharer = 2;
+            break;
+        case SHARED:
+            // std::cout << "S->S\n";                       // S->S，requestor一定是INVALID，因为ownread S->S是silent操作
+            final                             = SHARED;  // sharer同时也是owner，不用给数据
+            directoryblocks[blockaddr].sharer = 2;       //两个sharer
+            break;
+        case INVALID:  // I->E
+            // std::cout << "I->E\n";
+            final                            = EXCLUSIVE;
+            directoryblocks[blockaddr].owner = issuedcache;
+            break;
+        default:
+            std::cout << "umcinmem\n";
+            break;
+        }
+        break;
+    case OWNWRITE:
+        switch (original) {
+        case MODIFIED:  // M->M
+            // std::cout << "M->M\n";
+            final = MODIFIED;
+            // requestor一定不是owner，因为ownread M->M是个silent操作, requestor一定是INVALID
+            returnPair.second = directoryblocks[blockaddr].owner->dataTrans(addr).data;  // 114514
+            directoryblocks[blockaddr].owner->MESIoperationRec(OTHERWRITE, addr);        // invalidate
+            directoryblocks[blockaddr].owner = issuedcache;                              //改变owner
+            break;
+        case EXCLUSIVE:  // E->M
+            // std::cout << "E->M\n";
+            final = MODIFIED;
+            // requestor一定不是owner，因为ownread E->M是个silent操作, requestor一定是INVALID
+            directoryblocks[blockaddr].owner->MESIoperationRec(OTHERWRITE, addr);  // invalidate
+            directoryblocks[blockaddr].owner = issuedcache;
+            break;
+        case SHARED:  // S->M
+            // std::cout << "S->M\n";
+            final = MODIFIED;
+            // requestor可能是sharer，S-S S-I I-S 三种情况，都发invalidate就完事了？
+            sharer->MESIoperationRec(OTHERWRITE, addr);
+            directoryblocks[blockaddr].owner  = issuedcache;
+            directoryblocks[blockaddr].sharer = -1;
+            break;
+        case INVALID:  // I->M
+            // std::cout << "I->M\n";
+            final                            = MODIFIED;
+            directoryblocks[blockaddr].owner = issuedcache;
+            break;
+        default:
+            std::cout << "umcinmem\n";
+            break;
+        }
+        break;
+    case EVICT:  //! evict时dirctory里也是INVALID怎么处理？
+                 //只有block是从M/E/S到I时才会给mem发消息，requestor一定是owner/sharer
+        switch (original) {
+        case MODIFIED:
+            // std::cout << "M->I\n";
+            final                             = INVALID;
+            directoryblocks[blockaddr].owner  = nullptr;  //! potential bug！
+            directoryblocks[blockaddr].sharer = -1;
+            //被owner evict，改invalid，数据的写回放在cache的mesi中
+            // L2中被evcit时本来就要写回，这样会写回两次？
+            break;
+        case EXCLUSIVE:
+            // std::cout << "M->I\n";
+            final                             = INVALID;
+            directoryblocks[blockaddr].owner  = nullptr;  //! potential bug！
+            directoryblocks[blockaddr].sharer = -1;
+            break;
+        case SHARED:  //?为什么会只有一个sharer? 一种可能是有一个sharer被evict了，这是唯一的可能吗
+            // requestor 可能不是唯一sharer
+
+            if (directoryblocks[blockaddr].sharer != 2) {  //!=2说明是唯一sharer
+                final                             = INVALID;
+                directoryblocks[blockaddr].sharer = -1;
+                // std::cout << "S->I\n";
+            }
+            else {
+                if (issuedcache == core1cache)
+                    directoryblocks[blockaddr].sharer = 0;
+                else
+                    directoryblocks[blockaddr].sharer = 1;
+                final = SHARED;  //还是SHARED
+                // std::cout << "S->S\n";
+            }
+            directoryblocks[blockaddr].owner = nullptr;  //! potential bug！
+            break;
+        case INVALID:
+            //无操作
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+
+    directoryblocks[blockaddr].MESI = final;  //修改directory中状态
+
+    return returnPair;  //返回数据就行，不必返回block?
 }

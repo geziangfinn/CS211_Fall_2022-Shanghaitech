@@ -82,12 +82,15 @@ int main(int argc, char **argv) {
   l3Policy.samplesize           = 64;
   l3Policy.samplerblockNum      = ((l3Policy.blockNum / l3Policy.associativity) / l3Policy.samplesize) * l3Policy.samplerassociativity;  // a sampler set for every 64 sets
 
-  l3Cache = new Cache(&memory, l3Policy, 3);
-  l2Cache = new Cache(&memory, l2Policy, 2, l3Cache);
-  l1Cache = new Cache(&memory, l1Policy, 1, l2Cache);
+  l3Cache = new Cache(&memory, l3Policy, 3, -1);
+  l2Cache = new Cache(&memory, l2Policy, 2, 0, l3Cache);
+  l1Cache = new Cache(&memory, l1Policy, 1, 0, l2Cache);
 
-  l2CacheCore1 = new Cache(&memory, l2Policy, 2, l3Cache);
-  l1CacheCore1 = new Cache(&memory, l1Policy, 1, l2CacheCore1);
+  l2CacheCore1 = new Cache(&memory, l2Policy, 2, 1, l3Cache);
+  l1CacheCore1 = new Cache(&memory, l1Policy, 1, 1, l2CacheCore1);
+
+  l2CacheCore1->higherCache = l1CacheCore1;
+  l2Cache->higherCache      = l1Cache;  // Connect all cache controllers with a ring
 
   memory.setCache(l1Cache, l1CacheCore1);  // todo: how to add Core0 cache and Core1 cache? add core number as an parameter in memory::get/setByte()?
                                            // todo： so core number should be added in simulator.cpp as well use set/getnocache when functions are not called by cores
@@ -141,14 +144,21 @@ int main(int argc, char **argv) {
   simulator.setUp();
   simulatorCore1.setUp();
 
+  for (int i = 0; i < 1024; i++) {
+      uint32_t start = 0x100;
+      start += i;
+      start <<= 12;
+      memory.addPage(start);  //开辟共享内存(4MB)
+  }
 #ifdef DUALCORE
   while (true) {
-      if (!simulator.terminateCore()) {
-          simulator.singleStep(clockCycle);
+      if (!simulator.terminateCore() && simulator.stallCycles() == 0) {
+          simulator.singleStep(clockCycle);  // todo: history.cycle怎么处理，要处理吗？
       }
-      if (!simulatorCore1.terminateCore()) {
+      if (!simulatorCore1.terminateCore() && simulatorCore1.stallCycles() == 0) {
           simulatorCore1.singleStep(clockCycle);
       }
+      clockCycle++;
       if (simulator.terminateCore() && simulatorCore1.terminateCore()) {
           break;
       }
