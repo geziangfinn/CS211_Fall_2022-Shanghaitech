@@ -1141,6 +1141,66 @@ void Cache::MESIoperationRec(int operationcode, uint32_t addr) {  //本函数还
     }
 }
 
+void Cache::MESIevict(Block& Block) {  //!本函数由L1或L2调用
+    if (this->cachelevel != 1 && this->cachelevel != 2) {
+        std::cout << "evict error\n";
+        exit(0);
+    }
+    std::pair<int, std::vector<uint8_t>> returnPair;
+    uint32_t                             addr = this->getAddr(Block);
+    // std::cout << std::hex << Block.tag << Block.id;
+    // std::cout << addr" evicted\n";
+    bool   isthisblockonlyinonelevel;
+    Cache* memorycontrlcache;
+    if (this->cachelevel == 1) {
+        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->lowerCache->inCache(addr));
+        memorycontrlcache         = this;
+    }
+    else {
+        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->higherCache->inCache(addr));
+        memorycontrlcache         = this->higherCache;
+    }
+
+    int original = Block.MESI;
+
+    uint32_t blockaddr = addr >> 6;
+    // if (!isthisblockonlyinonelevel)
+    // std::cout << "114514\n";
+
+    if (isthisblockonlyinonelevel) {
+        switch (original) {
+        case MODIFIED:  // PUTM
+            if (this->cachelevel == 2) {
+                returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            }
+            //? 写回由policy完成？ L1也需要写回，不是写回L2而是写回LLC
+            // 如果block只在L1，那么不算evict，因为他是modifid，dirty，会被写回L2 要保证MODIFIED的block一定是dirty
+            // 这与EXCLUSIVE 和 SHARED 不一致，这两个如果只在L1就丢掉了
+            // !L2中被evcit时本来就要写回，写回由policy完成？
+            // todo 此时L1或L2中只有某一级含该block，先判断是哪一级再调用
+            // todo 写回，directory状态改为Invalidate，写回可由policy完成？
+            // block的状态无需再改，都不在Cache里了
+            break;
+        case EXCLUSIVE:  // PUTE
+            std::cout << "core " << this->corenumber << " request " << std::hex << addr << "(block: " << int(blockaddr) << ") : E->I\n";
+            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            // todo 此时L1或L2中只有某一级含该block
+            // todo 无需写回，directory状态改为Invalidate
+            break;
+        case SHARED:  // PUTS
+            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
+            // todo 此时L1或L2中只有某一级含该block
+            // todo 无需写回，cache中block状态改为Invalidate，directory中可能是S可能是E
+            break;
+        case INVALID:
+            //无操作
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 int Cache::readBlockMESIfromCache(uint32_t addr) {
     if (this->cachelevel != 1) {
         std::cout << "read mesi error\n";
@@ -1245,65 +1305,5 @@ void Cache::invalidateBlockinCache(uint32_t addr) {
             exit(0);
         }
         this->lowerCache->blocks[blockId].valid = false;
-    }
-}
-
-void Cache::MESIevict(Block& Block) {  //!本函数由L1或L2调用
-    if (this->cachelevel != 1 && this->cachelevel != 2) {
-        std::cout << "evict error\n";
-        exit(0);
-    }
-    std::pair<int, std::vector<uint8_t>> returnPair;
-    uint32_t                             addr = this->getAddr(Block);
-    // std::cout << std::hex << Block.tag << Block.id;
-    // std::cout << addr" evicted\n";
-    bool   isthisblockonlyinonelevel;
-    Cache* memorycontrlcache;
-    if (this->cachelevel == 1) {
-        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->lowerCache->inCache(addr));
-        memorycontrlcache         = this;
-    }
-    else {
-        isthisblockonlyinonelevel = (this->inCache(addr)) ^ (this->higherCache->inCache(addr));
-        memorycontrlcache         = this->higherCache;
-    }
-
-    int original = Block.MESI;
-
-    uint32_t blockaddr = addr >> 6;
-    // if (!isthisblockonlyinonelevel)
-    // std::cout << "114514\n";
-
-    if (isthisblockonlyinonelevel) {
-        switch (original) {
-        case MODIFIED:  // PUTM
-            if (this->cachelevel == 2) {
-                returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
-            }
-            //? 写回由policy完成？ L1也需要写回，不是写回L2而是写回LLC
-            // 如果block只在L1，那么不算evict，因为他是modifid，dirty，会被写回L2 要保证MODIFIED的block一定是dirty
-            // 这与EXCLUSIVE 和 SHARED 不一致，这两个如果只在L1就丢掉了
-            // !L2中被evcit时本来就要写回，写回由policy完成？
-            // todo 此时L1或L2中只有某一级含该block，先判断是哪一级再调用
-            // todo 写回，directory状态改为Invalidate，写回可由policy完成？
-            // block的状态无需再改，都不在Cache里了
-            break;
-        case EXCLUSIVE:  // PUTE
-            std::cout << "core " << this->corenumber << " request " << std::hex << addr << "(block: " << int(blockaddr) << ") : E->I\n";
-            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
-            // todo 此时L1或L2中只有某一级含该block
-            // todo 无需写回，directory状态改为Invalidate
-            break;
-        case SHARED:  // PUTS
-            returnPair = memorycontrlcache->memory->MESIoperationmem(EVICT, addr, memorycontrlcache);
-            // todo 此时L1或L2中只有某一级含该block
-            // todo 无需写回，cache中block状态改为Invalidate，directory中可能是S可能是E
-            break;
-        case INVALID:
-            //无操作
-            break;
-        default:
-            break;
-        }
     }
 }

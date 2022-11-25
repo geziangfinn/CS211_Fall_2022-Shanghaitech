@@ -188,6 +188,7 @@ void Simulator::setUp() {
     eReg.bubble = true;
     mReg.bubble = true;  // !: start up
 }
+
 void Simulator::singleStep(uint32_t clockCycle) {  // TODO:执行一个cycle, 要改成一个函数抽出来拿到maincpu里才行，复制粘贴即可？while true要拿到两个core的外面
     if (this->reg[0] != 0) {
         // Some instruction might set this register to zero
